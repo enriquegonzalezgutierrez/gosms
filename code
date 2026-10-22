@@ -1,0 +1,275 @@
+package cpu
+
+import (
+	"fmt"
+)
+
+type Instruction struct {
+	Name    string
+	Execute func(cpu *CPU)
+}
+
+var OpcodeTable [256]Instruction
+
+func init() {
+	// Registro modular de instrucciones ya probadas y estables
+	OpcodeTable[0x00] = Instruction{"NOP", func(cpu *CPU) {}}
+	
+	OpcodeTable[0x01] = Instruction{"LD BC, nn", func(cpu *CPU) {
+		low := uint16(cpu.ReadByte(cpu.PC))
+		high := uint16(cpu.ReadByte(cpu.PC + 1))
+		cpu.PC += 2
+		cpu.B = byte(high)
+		cpu.C = byte(low)
+	}}
+
+	OpcodeTable[0x02] = Instruction{"LD (BC), A", func(cpu *CPU) {
+		bc := uint16(cpu.B)<<8 | uint16(cpu.C)
+		cpu.WriteByte(bc, cpu.A)
+	}}
+
+	OpcodeTable[0x04] = Instruction{"INC B", func(cpu *CPU) { cpu.B++ }}
+	OpcodeTable[0x06] = Instruction{"LD B, n", func(cpu *CPU) {
+		cpu.B = cpu.ReadByte(cpu.PC)
+		cpu.PC++
+	}}
+	OpcodeTable[0x07] = Instruction{"RLCA", func(cpu *CPU) {
+		cpu.A = (cpu.A << 1) | (cpu.A >> 7)
+	}}
+	OpcodeTable[0x08] = Instruction{"EX AF, AF'", func(cpu *CPU) {}}
+	OpcodeTable[0x09] = Instruction{"ADD HL, BC", func(cpu *CPU) {
+		hl := uint16(cpu.H)<<8 | uint16(cpu.L)
+		bc := uint16(cpu.B)<<8 | uint16(cpu.C)
+		res := hl + bc
+		cpu.H = byte(res >> 8)
+		cpu.L = byte(res)
+	}}
+	OpcodeTable[0x0C] = Instruction{"INC C", func(cpu *CPU) { cpu.C++ }}
+	OpcodeTable[0x0D] = Instruction{"DEC C", func(cpu *CPU) { cpu.C-- }}
+	OpcodeTable[0x0E] = Instruction{"LD C, n", func(cpu *CPU) {
+		cpu.C = cpu.ReadByte(cpu.PC)
+		cpu.PC++
+	}}
+	OpcodeTable[0x10] = Instruction{"DJNZ o", func(cpu *CPU) {
+		offset := int8(cpu.ReadByte(cpu.PC))
+		cpu.PC++
+		cpu.B--
+		if cpu.B != 0 {
+			cpu.PC = uint16(int32(cpu.PC) + int32(offset))
+		}
+	}}
+	OpcodeTable[0x11] = Instruction{"LD DE, nn", func(cpu *CPU) {
+		low := uint16(cpu.ReadByte(cpu.PC))
+		high := uint16(cpu.ReadByte(cpu.PC + 1))
+		cpu.PC += 2
+		cpu.D = byte(high)
+		cpu.E = byte(low)
+	}}
+	OpcodeTable[0x12] = Instruction{"LD (DE), A", func(cpu *CPU) {
+		de := uint16(cpu.D)<<8 | uint16(cpu.E)
+		cpu.WriteByte(de, cpu.A)
+	}}
+	OpcodeTable[0x13] = Instruction{"INC DE", func(cpu *CPU) {
+		de := (uint16(cpu.D)<<8 | uint16(cpu.E)) + 1
+		cpu.D = byte(de >> 8)
+		cpu.E = byte(de)
+	}}
+	OpcodeTable[0x16] = Instruction{"LD D, n", func(cpu *CPU) {
+		cpu.D = cpu.ReadByte(cpu.PC)
+		cpu.PC++
+	}}
+	OpcodeTable[0x18] = Instruction{"JR o", func(cpu *CPU) {
+		offset := int8(cpu.ReadByte(cpu.PC))
+		cpu.PC++
+		cpu.PC = uint16(int32(cpu.PC) + int32(offset))
+	}}
+	OpcodeTable[0x19] = Instruction{"ADD HL, DE", func(cpu *CPU) {
+		hl := uint16(cpu.H)<<8 | uint16(cpu.L)
+		de := uint16(cpu.D)<<8 | uint16(cpu.E)
+		res := hl + de
+		cpu.H = byte(res >> 8)
+		cpu.L = byte(res)
+	}}
+	OpcodeTable[0x1A] = Instruction{"LD A, (DE)", func(cpu *CPU) {
+		de := uint16(cpu.D)<<8 | uint16(cpu.E)
+		cpu.A = cpu.ReadByte(de)
+	}}
+	OpcodeTable[0x1B] = Instruction{"DEC DE", func(cpu *CPU) {
+		de := (uint16(cpu.D)<<8 | uint16(cpu.E)) - 1
+		cpu.D = byte(de >> 8)
+		cpu.E = byte(de)
+	}}
+	OpcodeTable[0x1F] = Instruction{"RRA", func(cpu *CPU) {}}
+	OpcodeTable[0x21] = Instruction{"LD HL, nn", func(cpu *CPU) {
+		low := uint16(cpu.ReadByte(cpu.PC))
+		high := uint16(cpu.ReadByte(cpu.PC + 1))
+		cpu.PC += 2
+		cpu.H = byte(high)
+		cpu.L = byte(low)
+	}}
+	OpcodeTable[0x23] = Instruction{"INC HL", func(cpu *CPU) {
+		hl := (uint16(cpu.H)<<8 | uint16(cpu.L)) + 1
+		cpu.H = byte(hl >> 8)
+		cpu.L = byte(hl)
+	}}
+	OpcodeTable[0x25] = Instruction{"DEC H", func(cpu *CPU) { cpu.H-- }}
+	OpcodeTable[0x2A] = Instruction{"LD HL, (nn)", func(cpu *CPU) {
+		low := uint16(cpu.ReadByte(cpu.PC))
+		high := uint16(cpu.ReadByte(cpu.PC + 1))
+		cpu.PC += 2
+		addr := (high << 8) | low
+		cpu.L = cpu.ReadByte(addr)
+		cpu.H = cpu.ReadByte(addr + 1)
+	}}
+	OpcodeTable[0x2D] = Instruction{"DEC L", func(cpu *CPU) { cpu.L-- }}
+	OpcodeTable[0x31] = Instruction{"LD SP, nn", func(cpu *CPU) {
+		low := uint16(cpu.ReadByte(cpu.PC))
+		high := uint16(cpu.ReadByte(cpu.PC + 1))
+		cpu.PC += 2
+		cpu.SP = (high << 8) | low
+	}}
+	OpcodeTable[0x32] = Instruction{"LD (nn), A", func(cpu *CPU) {
+		low := uint16(cpu.ReadByte(cpu.PC))
+		high := uint16(cpu.ReadByte(cpu.PC + 1))
+		cpu.PC += 2
+		addr := (high << 8) | low
+		cpu.WriteByte(addr, cpu.A)
+	}}
+	OpcodeTable[0x34] = Instruction{"INC (HL)", func(cpu *CPU) {
+		hl := uint16(cpu.H)<<8 | uint16(cpu.L)
+		val := cpu.ReadByte(hl) + 1
+		cpu.WriteByte(hl, val)
+	}}
+	OpcodeTable[0x3D] = Instruction{"DEC A", func(cpu *CPU) { cpu.A-- }}
+	OpcodeTable[0x3E] = Instruction{"LD A, n", func(cpu *CPU) {
+		cpu.A = cpu.ReadByte(cpu.PC)
+		cpu.PC++
+	}}
+	OpcodeTable[0x3F] = Instruction{"CCF", func(cpu *CPU) {}}
+	
+	// Registros LD básicos y aritméticas frecuentes
+	OpcodeTable[0x40] = Instruction{"LD B, B", func(cpu *CPU) {}}
+	OpcodeTable[0x41] = Instruction{"LD B, C", func(cpu *CPU) { cpu.B = cpu.C }}
+	OpcodeTable[0x42] = Instruction{"LD B, D", func(cpu *CPU) { cpu.B = cpu.D }}
+	OpcodeTable[0x43] = Instruction{"LD B, E", func(cpu *CPU) { cpu.B = cpu.E }}
+	OpcodeTable[0x44] = Instruction{"LD B, H", func(cpu *CPU) { cpu.B = cpu.H }}
+	OpcodeTable[0x46] = Instruction{"LD B, (HL)", func(cpu *CPU) {
+		hl := uint16(cpu.H)<<8 | uint16(cpu.L)
+		cpu.B = cpu.ReadByte(hl)
+	}}
+	OpcodeTable[0x48] = Instruction{"LD C, B", func(cpu *CPU) { cpu.C = cpu.B }}
+	OpcodeTable[0x49] = Instruction{"LD C, C", func(cpu *CPU) {}}
+	OpcodeTable[0x4B] = Instruction{"LD C, E", func(cpu *CPU) { cpu.C = cpu.E }}
+	OpcodeTable[0x4C] = Instruction{"LD C, H", func(cpu *CPU) { cpu.C = cpu.H }}
+	OpcodeTable[0x4D] = Instruction{"LD C, L", func(cpu *CPU) { cpu.C = cpu.L }}
+	OpcodeTable[0x4E] = Instruction{"LD C, (HL)", func(cpu *CPU) {
+		hl := uint16(cpu.H)<<8 | uint16(cpu.L)
+		cpu.C = cpu.ReadByte(hl)
+	}}
+	OpcodeTable[0x4F] = Instruction{"LD C, A", func(cpu *CPU) { cpu.C = cpu.A }}
+	OpcodeTable[0x50] = Instruction{"LD D, B", func(cpu *CPU) { cpu.D = cpu.B }}
+	OpcodeTable[0x51] = Instruction{"LD D, C", func(cpu *CPU) { cpu.D = cpu.C }}
+	OpcodeTable[0x52] = Instruction{"LD D, D", func(cpu *CPU) {}}
+	OpcodeTable[0x54] = Instruction{"LD D, H", func(cpu *CPU) { cpu.D = cpu.H }}
+	OpcodeTable[0x5F] = Instruction{"LD E, A", func(cpu *CPU) { cpu.E = cpu.A }}
+	OpcodeTable[0x61] = Instruction{"LD H, C", func(cpu *CPU) { cpu.H = cpu.C }}
+	OpcodeTable[0x66] = Instruction{"LD H, (HL)", func(cpu *CPU) {
+		hl := uint16(cpu.H)<<8 | uint16(cpu.L)
+		cpu.H = cpu.ReadByte(hl)
+	}}
+	OpcodeTable[0x67] = Instruction{"LD H, A", func(cpu *CPU) { cpu.H = cpu.A }}
+	OpcodeTable[0x6F] = Instruction{"LD L, A", func(cpu *CPU) { cpu.L = cpu.A }}
+	OpcodeTable[0x7D] = Instruction{"LD A, L", func(cpu *CPU) { cpu.A = cpu.L }}
+	OpcodeTable[0x7E] = Instruction{"LD A, (HL)", func(cpu *CPU) {
+		hl := uint16(cpu.H)<<8 | uint16(cpu.L)
+		cpu.A = cpu.ReadByte(hl)
+	}}
+	OpcodeTable[0x81] = Instruction{"ADD A, C", func(cpu *CPU) { cpu.A += cpu.C }}
+	OpcodeTable[0x82] = Instruction{"ADD A, D", func(cpu *CPU) { cpu.A += cpu.D }}
+	OpcodeTable[0x83] = Instruction{"ADD A, E", func(cpu *CPU) { cpu.A += cpu.E }}
+	OpcodeTable[0x87] = Instruction{"ADD A, A", func(cpu *CPU) { cpu.A += cpu.A }}
+	OpcodeTable[0x89] = Instruction{"ADC A, C", func(cpu *CPU) { cpu.A += cpu.C }}
+	OpcodeTable[0x8A] = Instruction{"ADC A, D", func(cpu *CPU) { cpu.A += cpu.D }}
+	OpcodeTable[0x8B] = Instruction{"ADC A, E", func(cpu *CPU) { cpu.A += cpu.E }}
+	OpcodeTable[0x91] = Instruction{"SUB C", func(cpu *CPU) { cpu.A -= cpu.C }}
+	OpcodeTable[0x9F] = Instruction{"SBC A, A", func(cpu *CPU) {}}
+	OpcodeTable[0xAF] = Instruction{"XOR A", func(cpu *CPU) { cpu.A = 0 }}
+	OpcodeTable[0xB0] = Instruction{"OR B", func(cpu *CPU) { cpu.A |= cpu.B }}
+	OpcodeTable[0xB2] = Instruction{"OR D", func(cpu *CPU) { cpu.A |= cpu.D }}
+	OpcodeTable[0xBC] = Instruction{"CP H", func(cpu *CPU) {}}
+	OpcodeTable[0xBB] = Instruction{"CP E", func(cpu *CPU) {}}
+	OpcodeTable[0xBE] = Instruction{"CP (HL)", func(cpu *CPU) {}}
+	OpcodeTable[0xBF] = Instruction{"CP A", func(cpu *CPU) {}}
+	OpcodeTable[0xC3] = Instruction{"JP nn", func(cpu *CPU) {
+		low := uint16(cpu.ReadByte(cpu.PC))
+		high := uint16(cpu.ReadByte(cpu.PC + 1))
+		cpu.PC = (high << 8) | low
+	}}
+	OpcodeTable[0xC8] = Instruction{"RET Z", func(cpu *CPU) {}}
+	OpcodeTable[0xC9] = Instruction{"RET", func(cpu *CPU) {}}
+	OpcodeTable[0xCB] = Instruction{"PREFIX CB", func(cpu *CPU) { cpu.PC++ }}
+	OpcodeTable[0xCD] = Instruction{"CALL nn", func(cpu *CPU) {
+		low := uint16(cpu.ReadByte(cpu.PC))
+		high := uint16(cpu.ReadByte(cpu.PC + 1))
+		cpu.PC += 2
+		cpu.PC = (high << 8) | low
+	}}
+	OpcodeTable[0xD0] = Instruction{"RET NC", func(cpu *CPU) {}}
+	OpcodeTable[0xD3] = Instruction{"OUT (n), A", func(cpu *CPU) {
+		port := cpu.ReadByte(cpu.PC)
+		cpu.PC++
+		cpu.WritePort(port, cpu.A)
+	}}
+	OpcodeTable[0xD9] = Instruction{"EXX", func(cpu *CPU) {}}
+	OpcodeTable[0xDF] = Instruction{"RST 18H", func(cpu *CPU) { cpu.PC = 0x0018 }}
+	OpcodeTable[0xE6] = Instruction{"AND n", func(cpu *CPU) {
+		val := cpu.ReadByte(cpu.PC)
+		cpu.PC++
+		cpu.A &= val
+	}}
+	OpcodeTable[0xE9] = Instruction{"JP (HL)", func(cpu *CPU) {
+		cpu.PC = uint16(cpu.H)<<8 | uint16(cpu.L)
+	}}
+	OpcodeTable[0xED] = Instruction{"PREFIX ED", func(cpu *CPU) {
+		subOp := cpu.ReadByte(cpu.PC)
+		cpu.PC++
+		switch subOp {
+		case 0xB3: // OTIR
+			bc := uint16(cpu.B)<<8 | uint16(cpu.C)
+			port := cpu.C
+			for i := uint16(0); i < bc; i++ {
+				hl := uint16(cpu.H)<<8 | uint16(cpu.L)
+				val := cpu.ReadByte(hl)
+				cpu.WritePort(port, val)
+				hl++
+				cpu.H = byte(hl >> 8)
+				cpu.L = byte(hl)
+			}
+			cpu.B = 0
+		}
+	}}
+	OpcodeTable[0xF3] = Instruction{"DI", func(cpu *CPU) {}}
+	OpcodeTable[0xF8] = Instruction{"RM", func(cpu *CPU) {}}
+	OpcodeTable[0xF9] = Instruction{"LD SP, HL", func(cpu *CPU) {
+		cpu.SP = uint16(cpu.H)<<8 | uint16(cpu.L)
+	}}
+	OpcodeTable[0xFC] = Instruction{"CALL M, nn", func(cpu *CPU) { cpu.PC += 2 }}
+	OpcodeTable[0xFF] = Instruction{"RST 38H", func(cpu *CPU) {}}
+}
+
+func (cpu *CPU) StepTrace() string {
+	pc := cpu.PC
+	opcode := cpu.ReadByte(pc)
+	cpu.PC++
+
+	instr := OpcodeTable[opcode]
+	if instr.Execute == nil {
+		return fmt.Sprintf("[PC: $%.4X | Op: $%.2X] -> OPCODE NO MAPPED                        | A: $%.2X | BC: $%.2X%.2X | HL: $%.2X%.2X | SP: $%.4X",
+			pc, opcode, cpu.A, cpu.B, cpu.C, cpu.H, cpu.L, cpu.SP)
+	}
+
+	instr.Execute(cpu)
+
+	return fmt.Sprintf("[PC: $%.4X | Op: $%.2X] -> %-32s | A: $%.2X | BC: $%.2X%.2X | HL: $%.2X%.2X | SP: $%.4X",
+		pc, opcode, instr.Name, cpu.A, cpu.B, cpu.C, cpu.H, cpu.L, cpu.SP)
+}

@@ -1,0 +1,26 @@
+# Binarios generados
+bin/
+
+# ROMs e imágenes de juegos (¡MUY IMPORTANTE!)
+roms/
+*.sms
+*.gg
+*.sg
+*.rom
+*.bin
+
+# Logs y trazas de ejecución
+*.txt
+*.log
+run-*.txt
+
+# Archivos generados por el emulador (capturas, saves)
+*.png
+*.sav
+*.state
+
+# Archivos del sistema operativo y editores
+.DS_Store
+.idea/
+.vscode/
+*.swp
