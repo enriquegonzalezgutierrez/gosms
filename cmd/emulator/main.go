@@ -921,7 +921,7 @@ func (g *game) Draw(screen *ebiten.Image) {
 		screen.DrawImage(g.scanlineImg, scanOp)
 	}
 
-	if g.hdMode && machine.HD != nil && machine.HD.Active {
+	if machine.HD != nil && machine.HD.Active {
 		g.drawHDOverlay(screen, scale, destX, destY)
 	}
 

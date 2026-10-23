@@ -27,6 +27,16 @@ func decodeColor(c byte) color.RGBA {
 	return color.RGBA{R: r, G: g, B: b, A: 255}
 }
 
+func isPaletteValid(pal []color.RGBA) bool {
+	nonBlack := 0
+	for _, c := range pal {
+		if c.R > 0 || c.G > 0 || c.B > 0 {
+			nonBlack++
+		}
+	}
+	return nonBlack >= 4
+}
+
 func decodeTile(tileBytes []byte, palette []color.RGBA) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	for y := 0; y < 8; y++ {
@@ -74,30 +84,36 @@ func main() {
 
 	baseName := strings.TrimSuffix(filepath.Base(romPath), filepath.Ext(romPath))
 	outDir := filepath.Join(".", "assets", baseName, "original")
-	tilesDir := filepath.Join(outDir, "tiles")
-	_ = os.MkdirAll(tilesDir, 0755)
+	hdDir := filepath.Join(".", "assets", baseName, "hd")
 
-	fmt.Printf("🚀 Ejecutando '%s' en modo fantasma para cazar texturas...\n", baseName)
+	_ = os.MkdirAll(outDir, 0755)
+	_ = os.MkdirAll(hdDir, 0755)
+
+	fmt.Printf("🚀 Extrayendo texturas de '%s'...\n", baseName)
 	m := machine.New(data)
 
 	uniqueTiles := make(map[string]*image.RGBA)
 	var manifest []TileManifest
 	tileCount := 0
 
-	// Simular 3000 frames (50 segundos de juego) a máxima velocidad
-	for f := 0; f < 3000; f++ {
-		// IA Jugadora: Pulsar START (Botón 1) y DERECHA alternativamente para pasar menús y empezar el nivel
+	for f := 0; f < 5500; f++ {
 		pad := byte(0xFF)
-		if f%120 < 10 {
-			pad &= ^byte(0x10) // Botón 1 (Pulsar Start/Saltar)
-		} else if f > 600 {
-			pad &= ^byte(0x08) // Mantener Derecha
+		if f < 350 {
+			pad = 0xFF // Portada
+		} else if f < 550 {
+			if (f/15)%2 == 0 { pad &= ^byte(0x10) } // Start
+		} else if f < 750 {
+			pad = 0xFF // Mapa de la isla
+		} else {
+			pad &= ^byte(0x08) // Green Hill
+			if (f%140) < 25 { pad &= ^byte(0x10) }
 		}
+
 		m.CPU.Pad1 = pad
 		m.RunFrame()
 
-		// Cada 60 frames (1 segundo), escanear la VRAM descomprimida
-		if f%60 == 0 {
+		esVentanaValida := (f >= 300 && f <= 380) || (f >= 600)
+		if esVentanaValida && f%12 == 0 {
 			bgPalette := make([]color.RGBA, 16)
 			sprPalette := make([]color.RGBA, 16)
 			for i := 0; i < 16; i++ {
@@ -105,17 +121,31 @@ func main() {
 				sprPalette[i] = decodeColor(m.VDP.CRAM[16+i])
 			}
 
+			if !isPaletteValid(bgPalette) && !isPaletteValid(sprPalette) {
+				continue
+			}
+
 			vram := m.VDP.VRAM[:]
-			for i := 0; i < 0x3800; i += 32 {
+			for i := 0; i < 0x4000; i += 32 {
 				chunk := vram[i : i+32]
 				if isBlankTile(chunk) {
 					continue
 				}
-				for pIdx, pal := range [][]color.RGBA{bgPalette, sprPalette} {
-					h := tileHash(chunk, pIdx)
+
+				palettes := []struct {
+					pal  []color.RGBA
+					pIdx int
+				}{
+					{bgPalette, 0},
+					{sprPalette, 1},
+				}
+
+				for _, p := range palettes {
+					if !isPaletteValid(p.pal) { continue }
+					h := tileHash(chunk, p.pIdx)
 					if _, exists := uniqueTiles[h]; !exists {
-						uniqueTiles[h] = decodeTile(chunk, pal)
-						manifest = append(manifest, TileManifest{Hash: h, Index: tileCount, PaletteIdx: pIdx})
+						uniqueTiles[h] = decodeTile(chunk, p.pal)
+						manifest = append(manifest, TileManifest{Hash: h, Index: tileCount, PaletteIdx: p.pIdx})
 						tileCount++
 					}
 				}
@@ -123,17 +153,12 @@ func main() {
 		}
 	}
 
-	fmt.Printf("📦 Guardando %d tiles individuales reales...\n", len(uniqueTiles))
-	for h, img := range uniqueTiles {
-		f, _ := os.Create(filepath.Join(tilesDir, fmt.Sprintf("tile_%s.png", h)))
-		png.Encode(f, img)
-		f.Close()
-	}
+	fmt.Printf("📦 Texturas únicas: %d\n", len(uniqueTiles))
 
-	// Crear Spritesheet Global
 	cols := 32
 	rows := (len(uniqueTiles) + cols - 1) / cols
 	if rows == 0 { rows = 1 }
+
 	sheet := image.NewRGBA(image.Rect(0, 0, cols*8, rows*8))
 	idx := 0
 	for _, mItem := range manifest {
@@ -147,18 +172,23 @@ func main() {
 		}
 		idx++
 	}
+
 	sheetPath := filepath.Join(outDir, "spritesheet.png")
 	sf, _ := os.Create(sheetPath)
 	png.Encode(sf, sheet)
 	sf.Close()
 
-	mfPath := filepath.Join(outDir, "manifest.json")
-	mf, _ := os.Create(mfPath)
-	enc := json.NewEncoder(mf)
-	enc.SetIndent("", "  ")
-	enc.Encode(manifest)
-	mf.Close()
+	saveJSON(filepath.Join(outDir, "manifest.json"), manifest)
+	saveJSON(filepath.Join(hdDir, "manifest.json"), manifest)
 
-	fmt.Printf("✅ EXTRACCIÓN DINÁMICA COMPLETADA\n")
-	fmt.Printf("   Mosaico listo para la IA en: %s\n", sheetPath)
+	fmt.Printf("✅ Spritesheet base perfecto generado en: %s\n", sheetPath)
+}
+
+func saveJSON(path string, data interface{}) {
+	f, err := os.Create(path)
+	if err != nil { return }
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	enc.Encode(data)
 }
