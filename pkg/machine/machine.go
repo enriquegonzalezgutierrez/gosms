@@ -4,6 +4,7 @@ import (
 	"alexkidd/pkg/cpu"
 	"alexkidd/pkg/psg"
 	"alexkidd/pkg/vdp"
+	"os"
 )
 
 // Machine representa una Sega Master System.
@@ -41,4 +42,44 @@ func (m *Machine) RunFrame() {
 		m.CPU.IRQ = v.IRQ()
 		m.RunCycles(vdp.CyclesPerLine)
 	}
+}
+
+// SaveState guarda el estado completo de la máquina a un archivo .state
+func (m *Machine) SaveState(path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if err := m.CPU.WriteState(f); err != nil {
+		return err
+	}
+	if err := m.VDP.WriteState(f); err != nil {
+		return err
+	}
+	if err := m.PSG.WriteState(f); err != nil {
+		return err
+	}
+	return nil
+}
+
+// LoadState restaura el estado completo de la máquina desde un archivo .state
+func (m *Machine) LoadState(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if err := m.CPU.ReadState(f); err != nil {
+		return err
+	}
+	if err := m.VDP.ReadState(f); err != nil {
+		return err
+	}
+	if err := m.PSG.ReadState(f); err != nil {
+		return err
+	}
+	return nil
 }

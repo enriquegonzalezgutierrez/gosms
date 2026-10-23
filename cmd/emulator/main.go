@@ -41,6 +41,7 @@ type VideoFilter int
 const (
 	VideoFilterPixelPerfect VideoFilter = iota
 	VideoFilterScanlines
+	VideoFilterEPX
 	VideoFilterSmooth
 	VideoFilterMonochrome
 )
@@ -48,6 +49,7 @@ const (
 var videoFilterNames = []string{
 	"PÍXEL PERFECT (NÍTIDO)",
 	"CRT SCANLINES (TV DE TUBO)",
+	"SCALE2X EPX (HD SUAVE)",
 	"SUAVIZADO BILINEAL",
 	"FÓSFORO VERDE MONOCROMO",
 }
@@ -211,14 +213,57 @@ var pad2Keys = []keyBit{
 	{ebiten.KeyE, 0x20},
 }
 
-func readPad(keys []keyBit) byte {
+func readPad(keys []keyBit, padIndex int) byte {
 	v := byte(0xFF)
 	for _, kb := range keys {
 		if ebiten.IsKeyPressed(kb.key) {
 			v &^= kb.bit
 		}
 	}
+
+	// Mapeo automático de mandos USB / Bluetooth
+	var ids []ebiten.GamepadID
+	ids = ebiten.AppendGamepadIDs(ids)
+	if padIndex < len(ids) {
+		id := ids[padIndex]
+		// D-Pad y Joystick analógico
+		if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonLeftTop) ||
+			ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickVertical) < -0.4 {
+			v &^= 0x01 // Arriba
+		}
+		if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonLeftBottom) ||
+			ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickVertical) > 0.4 {
+			v &^= 0x02 // Abajo
+		}
+		if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonLeftLeft) ||
+			ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickHorizontal) < -0.4 {
+			v &^= 0x04 // Izquierda
+		}
+		if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonLeftRight) ||
+			ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickHorizontal) > 0.4 {
+			v &^= 0x08 // Derecha
+		}
+		// Botón 1 (A en Xbox, Cruz en PlayStation)
+		if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonRightBottom) ||
+			ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonRightLeft) {
+			v &^= 0x10
+		}
+		// Botón 2 (B en Xbox, Círculo en PlayStation)
+		if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonRightRight) ||
+			ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonRightTop) {
+			v &^= 0x20
+		}
+	}
 	return v
+}
+
+func isGamepadButtonJustPressed(b ebiten.StandardGamepadButton) bool {
+	var ids []ebiten.GamepadID
+	ids = ebiten.AppendGamepadIDs(ids)
+	if len(ids) > 0 {
+		return inpututil.IsStandardGamepadButtonJustPressed(ids[0], b)
+	}
+	return false
 }
 
 // ---------- Metadatos de ROM y Miniaturas Inteligentes ----------
@@ -251,12 +296,28 @@ func evalFrameScore(frame []byte) int {
 		totalSamples++
 	}
 
+	if totalSamples == 0 || len(colorCounts) <= 1 {
+		return 0
+	}
+
+	maxCount := 0
 	for _, count := range colorCounts {
-		if float64(count)/float64(totalSamples) > 0.75 {
-			return 0
+		if count > maxCount {
+			maxCount = count
 		}
 	}
-	return len(colorCounts)
+
+	// Descartar solo si mas del 97% es un unico color plano (pantalla vacia)
+	if float64(maxCount)/float64(totalSamples) > 0.97 {
+		return 0
+	}
+
+	nonBgPixels := totalSamples - maxCount
+	if nonBgPixels < 40 {
+		return 0
+	}
+
+	return (len(colorCounts) * 100) + nonBgPixels
 }
 
 func generateSmartThumbnail(romPath string) (*ebiten.Image, error) {
@@ -283,15 +344,16 @@ func generateSmartThumbnail(romPath string) (*ebiten.Image, error) {
 	var bestFrame []byte
 	bestScore := -1
 
-	for i := 0; i < 360; i++ {
-		if (i >= 80 && i <= 95) || (i >= 180 && i <= 195) {
-			m.CPU.Pad1 = 0xEF
+	for i := 0; i < 450; i++ {
+		// Pulsaciones de boton 1 y 2 para saltar intros de SEGA y llegar al titulo
+		if i%45 >= 10 && i%45 <= 20 {
+			m.CPU.Pad1 = 0xCF // Boton 1 y Boton 2 pulsados
 		} else {
 			m.CPU.Pad1 = 0xFF
 		}
 		m.RunFrame()
 
-		if i >= 60 {
+		if i >= 40 {
 			score := evalFrameScore(m.VDP.Frame[:])
 			if score > bestScore {
 				bestScore = score
@@ -333,12 +395,17 @@ type game struct {
 	romFiles   []string
 	roms       []RomItem
 	loadingIdx int
+	loadingMsg string
+	loadChan   chan RomItem
+	loadDone   chan bool
 	selected   int
 	curTitle   string
+	curRomPath string
 	m          *machine.Machine
 	img        *ebiten.Image
 	fullscreen bool
 	crop       bool
+	hdMode     bool
 	audioBuf   *audioBuffer
 	dsp        AudioDSP
 	monoBuf    []byte
@@ -357,6 +424,8 @@ type game struct {
 
 	// Textura de scanlines CRT
 	scanlineImg *ebiten.Image
+	epxImg      *ebiten.Image
+	epxBuf      []byte
 }
 
 func (g *game) loadGame(path string) error {
@@ -364,9 +433,15 @@ func (g *game) loadGame(path string) error {
 	if err != nil {
 		return err
 	}
+	g.curRomPath = path
 	g.m = machine.New(rom)
+	machine.InitHD(path)
 	g.m.CPU.PSG.SetSampleRate(sampleRate)
 	g.audioBuf.Reset()
+
+	// Cargar archivo .sav de batería de guardado si existe
+	sramPath := strings.TrimSuffix(path, filepath.Ext(path)) + ".sav"
+	g.m.CPU.LoadSRAM(sramPath)
 	return nil
 }
 
@@ -387,8 +462,21 @@ func (g *game) Update() error {
 	}
 
 	// Teclas rápidas globales para cambiar filtros
+	if inpututil.IsKeyJustPressed(ebiten.KeyF10) {
+		if machine.HD != nil && machine.HD.Active {
+			g.hdMode = !g.hdMode
+			if g.hdMode {
+				g.showOSD("MODO HD: ACTIVADO")
+			} else {
+				g.showOSD("MODO HD: DESACTIVADO")
+			}
+		} else {
+			g.showOSD("PACK HD NO DISPONIBLE PARA ESTE JUEGO")
+		}
+	}
+
 	if inpututil.IsKeyJustPressed(ebiten.KeyF1) || inpututil.IsKeyJustPressed(ebiten.KeyV) {
-		g.videoFilter = (g.videoFilter + 1) % 4
+		g.videoFilter = (g.videoFilter + 1) % 5
 		g.showOSD(fmt.Sprintf("VÍDEO: %s", videoFilterNames[g.videoFilter]))
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF2) || inpututil.IsKeyJustPressed(ebiten.KeyB) {
@@ -398,22 +486,17 @@ func (g *game) Update() error {
 
 	switch g.state {
 	case StateLoading:
-		if g.loadingIdx < len(g.romFiles) {
-			path := g.romFiles[g.loadingIdx]
-			thumb, err := generateSmartThumbnail(path)
-			if err != nil {
-				thumb = ebiten.NewImage(vdp.ScreenW, vdp.ScreenH)
-				thumb.Fill(color.RGBA{20, 20, 30, 255})
-			}
-			g.roms = append(g.roms, RomItem{
-				Path:      path,
-				Title:     cleanTitle(path),
-				Thumbnail: thumb,
-			})
+		select {
+		case item := <-g.loadChan:
+			g.roms = append(g.roms, item)
 			g.loadingIdx++
-		} else {
+			if g.loadingIdx < len(g.romFiles) {
+				g.loadingMsg = cleanTitle(g.romFiles[g.loadingIdx])
+			}
+		case <-g.loadDone:
 			g.state = StateMenu
 			ebiten.SetWindowTitle("gosms - Sega Master System Launcher")
+		default:
 		}
 
 	case StateMenu:
@@ -421,13 +504,26 @@ func (g *game) Update() error {
 			return ebiten.Termination
 		}
 		if len(g.roms) > 0 {
-			if inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) {
+			// Tecla R: Regenerar carátula del juego seleccionado
+			if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+				g.showOSD("REGENERANDO CARÁTULA...")
+				cur := g.roms[g.selected]
+				baseName := strings.TrimSuffix(filepath.Base(cur.Path), filepath.Ext(cur.Path))
+				os.Remove(filepath.Join(".thumbnails", baseName+".png"))
+				if thumb, err := generateSmartThumbnail(cur.Path); err == nil {
+					g.roms[g.selected].Thumbnail = thumb
+				}
+			}
+			if inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonLeftRight) {
 				g.selected = (g.selected + 1) % len(g.roms)
 			}
-			if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyA) {
+			if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyA) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonLeftLeft) {
 				g.selected = (g.selected - 1 + len(g.roms)) % len(g.roms)
 			}
-			if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+			if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonRightBottom) {
 				if err := g.loadGame(g.roms[g.selected].Path); err != nil {
 					log.Printf("Error cargando juego: %v", err)
 				} else {
@@ -439,6 +535,9 @@ func (g *game) Update() error {
 
 	case StatePlaying:
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			if g.m != nil {
+				g.m.CPU.SaveSRAM()
+			}
 			g.state = StateMenu
 			g.m = nil
 			g.audioBuf.Reset()
@@ -451,8 +550,39 @@ func (g *game) Update() error {
 				g.curTitle, ebiten.ActualFPS(), ebiten.ActualTPS()))
 		}
 
-		g.m.CPU.Pad1 = readPad(pad1Keys)
-		g.m.CPU.Pad2 = readPad(pad2Keys)
+		// Botón PAUSE físico de la consola (tecla P o botón Start del mando)
+		if inpututil.IsKeyJustPressed(ebiten.KeyP) || isGamepadButtonJustPressed(ebiten.StandardGamepadButtonCenterRight) {
+			g.m.CPU.NMI = true
+			g.showOSD("BOTÓN PAUSE (NMI)")
+		}
+
+		// Save State: Guardar partida rápida con F5
+		if inpututil.IsKeyJustPressed(ebiten.KeyF5) {
+			statePath := strings.TrimSuffix(g.curRomPath, filepath.Ext(g.curRomPath)) + ".state"
+			if err := g.m.SaveState(statePath); err != nil {
+				g.showOSD("ERROR GUARDANDO ESTADO")
+			} else {
+				g.showOSD("PARTIDA GUARDADA (F5)")
+			}
+		}
+
+		// Save State: Cargar partida rápida con F8
+		if inpututil.IsKeyJustPressed(ebiten.KeyF8) {
+			statePath := strings.TrimSuffix(g.curRomPath, filepath.Ext(g.curRomPath)) + ".state"
+			if err := g.m.LoadState(statePath); err != nil {
+				g.showOSD("NO HAY PARTIDA GUARDADA")
+			} else {
+				g.showOSD("PARTIDA CARGADA (F8)")
+			}
+		}
+
+		// Auto-guardado periódico de SRAM (batería de guardado) cada 5 segundos
+		if g.frames%300 == 0 {
+			g.m.CPU.SaveSRAM()
+		}
+
+		g.m.CPU.Pad1 = readPad(pad1Keys, 0)
+		g.m.CPU.Pad2 = readPad(pad2Keys, 1)
 		g.m.RunFrame()
 
 		// 1. Generar audio mono base del PSG
@@ -525,11 +655,7 @@ func (g *game) drawLoading(screen *ebiten.Image) {
 	statusTitle := "GENERANDO CARATULAS INTELIGENTES..."
 	ebitenutil.DebugPrintAt(screen, statusTitle, sw/2-len(statusTitle)*3, int(centerY)+60)
 
-	curGame := ""
-	if g.loadingIdx < len(g.romFiles) {
-		curGame = cleanTitle(g.romFiles[g.loadingIdx])
-	}
-	progressText := fmt.Sprintf("Analizando: %s [ %d / %d ]", curGame, g.loadingIdx+1, len(g.romFiles))
+	progressText := fmt.Sprintf("Analizando: %s [ %d / %d ]", g.loadingMsg, g.loadingIdx, len(g.romFiles))
 	ebitenutil.DebugPrintAt(screen, progressText, sw/2-len(progressText)*3, int(centerY)+84)
 }
 
@@ -619,7 +745,7 @@ func (g *game) drawMenu(screen *ebiten.Image) {
 	vector.DrawFilledRect(screen, 0, float32(sh)-52, float32(sw), 52, color.RGBA{9, 12, 18, 255}, true)
 	vector.DrawFilledRect(screen, 0, float32(sh)-52, float32(sw), 1, color.RGBA{30, 42, 58, 255}, true)
 
-	hint := "[ < / > ] Elegir   [ ENTER ] Jugar   [ F1 ] Vídeo   [ F2 ] Audio   [ F11 ] Pantalla Completa   [ ESC ] Salir"
+	hint := "[ < / > ] Elegir   [ ENTER ] Jugar   [ R ] Carátula   [ F1 ] Vídeo   [ F2 ] Audio   [ F11 ] Pantalla Completa   [ ESC ] Salir"
 	ebitenutil.DebugPrintAt(screen, hint, sw/2-len(hint)*3, sh-38)
 
 	credit := fmt.Sprintf("gosms  ©  Creado por %s", authorName)
@@ -631,8 +757,13 @@ func (g *game) Draw(screen *ebiten.Image) {
 	case StateLoading:
 		g.drawLoading(screen)
 		return
+
 	case StateMenu:
 		g.drawMenu(screen)
+		return
+	}
+
+	if g.m == nil || g.m.VDP == nil {
 		return
 	}
 
@@ -661,6 +792,101 @@ func (g *game) Draw(screen *ebiten.Image) {
 
 	// 2. Aplicar filtro de vídeo seleccionado
 	switch g.videoFilter {
+	case VideoFilterEPX:
+		if g.epxImg == nil {
+			g.epxImg = ebiten.NewImage(vdp.ScreenW*2, vdp.ScreenH*2)
+			g.epxBuf = make([]byte, vdp.ScreenW*2*vdp.ScreenH*2*4)
+		}
+		// Algoritmo EPX / Scale2x por CPU
+		src := g.m.VDP.Frame[:]
+		dst := g.epxBuf
+		srcW := vdp.ScreenW
+		srcH := vdp.ScreenH
+		for y := 0; y < srcH; y++ {
+			for x := 0; x < srcW; x++ {
+				// Índices centrales y vecinos
+				idxP := (y*srcW + x) * 4
+				var idxA, idxB, idxI, idxD int
+				if y > 0 {
+					idxA = ((y-1)*srcW + x) * 4
+				} else {
+					idxA = idxP
+				}
+				if y < srcH-1 {
+					idxB = ((y+1)*srcW + x) * 4
+				} else {
+					idxB = idxP
+				}
+				if x > 0 {
+					idxI = (y*srcW + x - 1) * 4
+				} else {
+					idxI = idxP
+				}
+				if x < srcW-1 {
+					idxD = (y*srcW + x + 1) * 4
+				} else {
+					idxD = idxP
+				}
+
+				// Colores (leídos como uint32)
+				p := uint32(src[idxP])<<16 | uint32(src[idxP+1])<<8 | uint32(src[idxP+2])
+				a := uint32(src[idxA])<<16 | uint32(src[idxA+1])<<8 | uint32(src[idxA+2])
+				b := uint32(src[idxB])<<16 | uint32(src[idxB+1])<<8 | uint32(src[idxB+2])
+				i := uint32(src[idxI])<<16 | uint32(src[idxI+1])<<8 | uint32(src[idxI+2])
+				d := uint32(src[idxD])<<16 | uint32(src[idxD+1])<<8 | uint32(src[idxD+2])
+
+				// P1 P2
+				// P3 P4
+				p1, p2, p3, p4 := p, p, p, p
+
+				if i == a && i != b && a != d {
+					p1 = a
+				}
+				if a == d && a != i && d != b {
+					p2 = a
+				}
+				if i == b && i != a && b != d {
+					p3 = b
+				}
+				if b == d && b != i && d != a {
+					p4 = b
+				}
+
+				// Escribir los 4 píxeles al buffer HD (2x)
+				dIdx1 := ((y*2)*(srcW*2) + (x * 2)) * 4
+				dIdx2 := dIdx1 + 4
+				dIdx3 := ((y*2+1)*(srcW*2) + (x * 2)) * 4
+				dIdx4 := dIdx3 + 4
+
+				dst[dIdx1], dst[dIdx1+1], dst[dIdx1+2], dst[dIdx1+3] = byte(p1>>16), byte(p1>>8), byte(p1), 255
+				dst[dIdx2], dst[dIdx2+1], dst[dIdx2+2], dst[dIdx2+3] = byte(p2>>16), byte(p2>>8), byte(p2), 255
+				dst[dIdx3], dst[dIdx3+1], dst[dIdx3+2], dst[dIdx3+3] = byte(p3>>16), byte(p3>>8), byte(p3), 255
+				dst[dIdx4], dst[dIdx4+1], dst[dIdx4+2], dst[dIdx4+3] = byte(p4>>16), byte(p4>>8), byte(p4), 255
+			}
+		}
+		g.epxImg.WritePixels(g.epxBuf)
+
+		// Recorte del overscan si está activado (para el imgToDraw 2x)
+		var imgHD *ebiten.Image
+		var drawW, drawH float64
+		if g.crop {
+			imgHD = g.epxImg.SubImage(image.Rect(16, 0, vdp.ScreenW*2, vdp.ScreenH*2)).(*ebiten.Image)
+			drawW, drawH = float64(vdp.ScreenW*2-16), float64(vdp.ScreenH*2)
+		} else {
+			imgHD = g.epxImg
+			drawW, drawH = float64(vdp.ScreenW*2), float64(vdp.ScreenH*2)
+		}
+
+		scaleHD := math.Min(float64(sw)/drawW, float64(sh)/drawH)
+		destXHD := (float64(sw) - drawW*scaleHD) / 2
+		destYHD := (float64(sh) - drawH*scaleHD) / 2
+
+		g.drawOp.GeoM.Reset()
+		g.drawOp.GeoM.Scale(scaleHD, scaleHD)
+		g.drawOp.GeoM.Translate(destXHD, destYHD)
+		g.drawOp.Filter = ebiten.FilterNearest
+		screen.DrawImage(imgHD, &g.drawOp)
+
 	case VideoFilterPixelPerfect:
 		g.drawOp.Filter = ebiten.FilterNearest
 		screen.DrawImage(imgToDraw, &g.drawOp)
@@ -693,6 +919,10 @@ func (g *game) Draw(screen *ebiten.Image) {
 		scanOp.GeoM.Scale(srcW*scale, 1)
 		scanOp.GeoM.Translate(destX, destY)
 		screen.DrawImage(g.scanlineImg, scanOp)
+	}
+
+	if g.hdMode && machine.HD != nil && machine.HD.Active {
+		g.drawHDOverlay(screen, scale, destX, destY)
 	}
 
 	// 3. Notificación OSD emergente al cambiar filtros (fondo translúcido + borde neón)
@@ -767,6 +997,26 @@ func main() {
 		g.curTitle = cleanTitle(flag.Arg(0))
 	} else {
 		g.romFiles = findRomFiles(*romsDir)
+		g.loadChan = make(chan RomItem, 50)
+		g.loadDone = make(chan bool)
+		if len(g.romFiles) > 0 {
+			g.loadingMsg = cleanTitle(g.romFiles[0])
+		}
+		go func() {
+			for _, path := range g.romFiles {
+				thumb, err := generateSmartThumbnail(path)
+				if err != nil {
+					thumb = ebiten.NewImage(vdp.ScreenW, vdp.ScreenH)
+					thumb.Fill(color.RGBA{20, 20, 30, 255})
+				}
+				g.loadChan <- RomItem{
+					Path:      path,
+					Title:     cleanTitle(path),
+					Thumbnail: thumb,
+				}
+			}
+			g.loadDone <- true
+		}()
 		ebiten.SetWindowTitle("gosms - Inicializando...")
 	}
 

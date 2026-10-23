@@ -24,3 +24,6 @@ run-*.txt
 .idea/
 .vscode/
 *.swp
+
+# Assets volcados y texturas HD con copyright
+assets/

@@ -3,6 +3,8 @@
 package psg
 
 import (
+	"encoding/gob"
+	"os"
 	"sync"
 	"sync/atomic"
 )
@@ -283,4 +285,68 @@ func (p *PSG) Render(out []byte) {
 	}
 
 	p.restoreSnapshot(s)
+}
+
+// WriteState serializa el estado del chip de audio
+func (p *PSG) WriteState(w *os.File) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	var state = struct {
+		Freq            [4]uint16
+		Vol             [4]uint8
+		LatchCh         int
+		LatchType       int
+		ToneCnt         [3]uint32
+		ToneOut         [3]int8
+		NoiseCnt        uint32
+		NoiseSeed       uint16
+		NoiseMode       uint8
+		NoiseFreq       uint16
+		NoiseFref       bool
+		NoiseOut        int8
+		PsgClkPerSample uint64
+		PsgClkAccum     uint64
+	}{
+		Freq: p.freq, Vol: p.vol, LatchCh: p.latchCh, LatchType: p.latchType,
+		ToneCnt: p.toneCnt, ToneOut: p.toneOut, NoiseCnt: p.noiseCnt,
+		NoiseSeed: p.noiseSeed, NoiseMode: p.noiseMode, NoiseFreq: p.noiseFreq,
+		NoiseFref: p.noiseFref, NoiseOut: p.noiseOut,
+		PsgClkPerSample: p.psgClkPerSample, PsgClkAccum: p.psgClkAccum,
+	}
+	dec := gob.NewEncoder(w)
+	return dec.Encode(&state)
+}
+
+// ReadState restaura el estado del chip de audio
+func (p *PSG) ReadState(r *os.File) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	var state struct {
+		Freq            [4]uint16
+		Vol             [4]uint8
+		LatchCh         int
+		LatchType       int
+		ToneCnt         [3]uint32
+		ToneOut         [3]int8
+		NoiseCnt        uint32
+		NoiseSeed       uint16
+		NoiseMode       uint8
+		NoiseFreq       uint16
+		NoiseFref       bool
+		NoiseOut        int8
+		PsgClkPerSample uint64
+		PsgClkAccum     uint64
+	}
+	dec := gob.NewDecoder(r)
+	if err := dec.Decode(&state); err != nil {
+		return err
+	}
+	p.freq, p.vol, p.latchCh, p.latchType = state.Freq, state.Vol, state.LatchCh, state.LatchType
+	p.toneCnt, p.toneOut, p.noiseCnt = state.ToneCnt, state.ToneOut, state.NoiseCnt
+	p.noiseSeed, p.noiseMode, p.noiseFreq = state.NoiseSeed, state.NoiseMode, state.NoiseFreq
+	p.noiseFref, p.noiseOut = state.NoiseFref, state.NoiseOut
+	p.psgClkPerSample, p.psgClkAccum = state.PsgClkPerSample, state.PsgClkAccum
+	return nil
 }

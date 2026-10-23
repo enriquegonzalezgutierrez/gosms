@@ -1,6 +1,11 @@
 // Package vdp implementa el VDP de la Sega Master System (modo 4).
 package vdp
 
+import (
+	"encoding/gob"
+	"os"
+)
+
 const (
 	ScreenW       = 256
 	ScreenH       = 192
@@ -182,7 +187,14 @@ func (v *VDP) WriteControl(val byte) {
 }
 
 // VCounter devuelve el contador vertical ($7E).
-func (v *VDP) VCounter() byte { return byte(v.line) }
+// VCounter devuelve el contador vertical ($7E), emulando el peculiar salto hardware NTSC.
+func (v *VDP) VCounter() byte {
+	if v.line <= 218 {
+		return byte(v.line)
+	}
+	// Salto hacia atrás en hardware NTSC: la línea 219 devuelve 213 (0xD5)
+	return byte(v.line - 6)
+}
 
 // HCounter devuelve el contador horizontal ($7F). Aproximado.
 func (v *VDP) HCounter() byte { return 0 }
@@ -204,8 +216,8 @@ func (v *VDP) SetLine(line int) {
 		v.vScroll = v.Reg[9] // el scroll vertical se fija en el VBlank
 	}
 
-	// Contador de interrupción de línea (activo y primera línea de blanking).
-	if line <= ScreenH {
+	// Contador de interrupción de línea (activo) y recarga continua durante VBlank
+	if line < ScreenH {
 		if v.lineCounter == 0 {
 			v.lineCounter = int(v.Reg[10])
 			if v.Reg[0]&0x10 != 0 {
@@ -214,6 +226,8 @@ func (v *VDP) SetLine(line int) {
 		} else {
 			v.lineCounter--
 		}
+	} else {
+		v.lineCounter = int(v.Reg[10])
 	}
 
 	if v.Reg[1]&0x20 != 0 && v.Status&0x80 != 0 {
@@ -438,4 +452,60 @@ func (v *VDP) renderSprites(line int, bgPri *[ScreenW]bool, blankLeft bool) {
 			}
 		}
 	}
+}
+
+// WriteState serializa el estado del chip de vídeo
+func (v *VDP) WriteState(w *os.File) error {
+	var state = struct {
+		VRAM        [VRAMSize]byte
+		CRAM        [32]byte
+		Reg         [16]byte
+		Status      byte
+		Addr        uint16
+		Code        byte
+		Latch       bool
+		Low         byte
+		ReadBuf     byte
+		Line        int
+		LineCounter int
+		VScroll     byte
+		IRQ         bool
+		Frame       [ScreenW * ScreenH * 4]byte
+	}{
+		VRAM: v.VRAM, CRAM: v.CRAM, Reg: v.Reg, Status: v.Status,
+		Addr: v.addr, Code: v.code, Latch: v.latch, Low: v.low, ReadBuf: v.readBuf,
+		Line: v.line, LineCounter: v.lineCounter, VScroll: v.vScroll, IRQ: v.irq,
+		Frame: v.Frame,
+	}
+	dec := gob.NewEncoder(w)
+	return dec.Encode(&state)
+}
+
+// ReadState restaura el estado del chip de vídeo
+func (v *VDP) ReadState(r *os.File) error {
+	var state struct {
+		VRAM        [VRAMSize]byte
+		CRAM        [32]byte
+		Reg         [16]byte
+		Status      byte
+		Addr        uint16
+		Code        byte
+		Latch       bool
+		Low         byte
+		ReadBuf     byte
+		Line        int
+		LineCounter int
+		VScroll     byte
+		IRQ         bool
+		Frame       [ScreenW * ScreenH * 4]byte
+	}
+	dec := gob.NewDecoder(r)
+	if err := dec.Decode(&state); err != nil {
+		return err
+	}
+	v.VRAM, v.CRAM, v.Reg, v.Status = state.VRAM, state.CRAM, state.Reg, state.Status
+	v.addr, v.code, v.latch, v.low, v.readBuf = state.Addr, state.Code, state.Latch, state.Low, state.ReadBuf
+	v.line, v.lineCounter, v.vScroll, v.irq = state.Line, state.LineCounter, state.VScroll, state.IRQ
+	v.Frame = state.Frame
+	return nil
 }
