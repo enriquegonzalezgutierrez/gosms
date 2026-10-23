@@ -1,29 +1,147 @@
+// Command emulator arranca una Sega Master System con interfaz moderna,
+// selector de ROMs y filtros de post-procesado de vídeo y audio en tiempo real.
+// Desarrollado por Enrique González Gutiérrez.
 package main
 
 import (
 	"flag"
 	"fmt"
 	"image"
+	"image/color"
+	"image/png"
 	"log"
 	"math"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"alexkidd/pkg/machine"
 	"alexkidd/pkg/vdp"
 )
 
-// Frecuencia de muestreo del audio.
-const sampleRate = 48000
+const (
+	authorName      = "Enrique González Gutiérrez"
+	sampleRate      = 48000
+	samplesPerFrame = 801 // 48000 Hz / 59.9227 FPS (NTSC)
+	menuW           = 800
+	menuH           = 520
+)
 
-// ---------- Audio ----------
+// ---------- Filtros de Vídeo y Audio ----------
 
-// audioBuffer es una cola de muestras PCM sincronizada con el bucle de emulación.
-// audioBuffer es una cola FIFO con señalización thread-safe para alimentar a Ebiten.
+type VideoFilter int
+
+const (
+	VideoFilterPixelPerfect VideoFilter = iota
+	VideoFilterScanlines
+	VideoFilterSmooth
+	VideoFilterMonochrome
+)
+
+var videoFilterNames = []string{
+	"PÍXEL PERFECT (NÍTIDO)",
+	"CRT SCANLINES (TV DE TUBO)",
+	"SUAVIZADO BILINEAL",
+	"FÓSFORO VERDE MONOCROMO",
+}
+
+type AudioFilter int
+
+const (
+	AudioFilterRaw AudioFilter = iota
+	AudioFilterWarm
+	AudioFilterSpatial
+	AudioFilterReverb
+)
+
+var audioFilterNames = []string{
+	"AUDIO PURO (SN76489 DIRECTO)",
+	"CALIDEZ ANALÓGICA CRT (PASO BAJO)",
+	"PSEUDO-ESTÉREO 3D (HAAS)",
+	"SALÓN RECREATIVO (REVERB)",
+}
+
+// ---------- DSP de Audio ----------
+
+type AudioDSP struct {
+	// Filtro Paso Bajo IIR (LPF)
+	lpfPrevL float64
+	lpfPrevR float64
+
+	// Retardo espacial Haas (Pseudo-Estéreo)
+	haasRing [512]float64
+	haasIdx  int
+
+	// Reverb con delay line y feedback
+	reverbRing [2400]float64
+	reverbIdx  int
+}
+
+func (dsp *AudioDSP) Process(samples []int16, mode AudioFilter) {
+	if mode == AudioFilterRaw {
+		return
+	}
+
+	for i := 0; i < len(samples); i += 2 {
+		inL := float64(samples[i])
+		inR := float64(samples[i+1])
+
+		var outL, outR float64
+
+		switch mode {
+		case AudioFilterWarm:
+			// Filtro paso bajo IIR (~5.5 kHz a 48 kHz). Suaviza los armónicos ásperos de la onda cuadrada
+			const alpha = 0.45
+			dsp.lpfPrevL += alpha * (inL - dsp.lpfPrevL)
+			dsp.lpfPrevR += alpha * (inR - dsp.lpfPrevR)
+			outL = dsp.lpfPrevL
+			outR = dsp.lpfPrevR
+
+		case AudioFilterSpatial:
+			// Canal izquierdo directo; canal derecho con micro-retardo de ~9 ms para dimensionalidad 3D
+			delayedR := dsp.haasRing[dsp.haasIdx]
+			dsp.haasRing[dsp.haasIdx] = inR
+			dsp.haasIdx = (dsp.haasIdx + 1) % len(dsp.haasRing)
+
+			outL = inL*0.85 + inR*0.15
+			outR = delayedR*0.85 + inL*0.15
+
+		case AudioFilterReverb:
+			// Efecto de eco y reverberación de habitación / arcade
+			echo := dsp.reverbRing[dsp.reverbIdx]
+			dsp.reverbRing[dsp.reverbIdx] = inL*0.6 + echo*0.38
+			dsp.reverbIdx = (dsp.reverbIdx + 1) % len(dsp.reverbRing)
+
+			outL = inL + echo*0.45
+			outR = inR + echo*0.45
+		}
+
+		// Clamping para evitar distorsión digital
+		if outL > 32767 {
+			outL = 32767
+		} else if outL < -32768 {
+			outL = -32768
+		}
+		if outR > 32767 {
+			outR = 32767
+		} else if outR < -32768 {
+			outR = -32768
+		}
+
+		samples[i] = int16(outL)
+		samples[i+1] = int16(outR)
+	}
+}
+
+// ---------- Buffer de Audio ----------
+
 type audioBuffer struct {
 	mu   sync.Mutex
 	cond *sync.Cond
@@ -40,28 +158,32 @@ func (a *audioBuffer) Write(p []byte) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// Si el buffer acumula más de 100 ms (~6 frames), descartamos lo viejo para evitar lag
-	const maxBuffer = (sampleRate * 4 * 100) / 1000 // 19.200 bytes
+	const maxBuffer = (sampleRate * 4 * 100) / 1000 // 100 ms
 	if len(a.buf) > maxBuffer {
 		a.buf = a.buf[len(a.buf)-maxBuffer:]
 	}
 
 	a.buf = append(a.buf, p...)
-	a.cond.Signal() // Despertar al lector de audio
+	a.cond.Signal()
 }
 
 func (a *audioBuffer) Read(p []byte) (int, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// Esperar hasta que haya muestras disponibles producidas por la emulación
 	for len(a.buf) == 0 {
 		a.cond.Wait()
 	}
 
 	n := copy(p, a.buf)
 	a.buf = a.buf[n:]
-	return n, nil // Devolver SOLO los bytes reales leídos
+	return n, nil
+}
+
+func (a *audioBuffer) Reset() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.buf = nil
 }
 
 // ---------- Entrada ----------
@@ -71,16 +193,13 @@ type keyBit struct {
 	bit byte
 }
 
-// El mando de la SMS es activo-bajo: bit=0 significa pulsado.
 var pad1Keys = []keyBit{
 	{ebiten.KeyArrowUp, 0x01},
 	{ebiten.KeyArrowDown, 0x02},
 	{ebiten.KeyArrowLeft, 0x04},
 	{ebiten.KeyArrowRight, 0x08},
-	{ebiten.KeyZ, 0x10},
-	{ebiten.KeySpace, 0x10},
-	{ebiten.KeyX, 0x20},
-	{ebiten.KeyEnter, 0x20},
+	{ebiten.KeyZ, 0x10}, // Botón 1
+	{ebiten.KeyX, 0x20}, // Botón 2
 }
 
 var pad2Keys = []keyBit{
@@ -102,72 +221,422 @@ func readPad(keys []keyBit) byte {
 	return v
 }
 
-// ---------- Juego ----------
+// ---------- Metadatos de ROM y Miniaturas Inteligentes ----------
+
+type RomItem struct {
+	Path      string
+	Title     string
+	Thumbnail *ebiten.Image
+}
+
+func cleanTitle(filename string) string {
+	name := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	words := strings.Split(name, "_")
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+func evalFrameScore(frame []byte) int {
+	colorCounts := make(map[uint16]int)
+	totalSamples := 0
+
+	for i := 0; i < len(frame); i += 16 {
+		r, g, b := frame[i]>>3, frame[i+1]>>3, frame[i+2]>>3
+		c := uint16(r)<<10 | uint16(g)<<5 | uint16(b)
+		colorCounts[c]++
+		totalSamples++
+	}
+
+	for _, count := range colorCounts {
+		if float64(count)/float64(totalSamples) > 0.75 {
+			return 0
+		}
+	}
+	return len(colorCounts)
+}
+
+func generateSmartThumbnail(romPath string) (*ebiten.Image, error) {
+	thumbDir := ".thumbnails"
+	_ = os.MkdirAll(thumbDir, 0755)
+
+	baseName := strings.TrimSuffix(filepath.Base(romPath), filepath.Ext(romPath))
+	thumbPath := filepath.Join(thumbDir, baseName+".png")
+
+	if f, err := os.Open(thumbPath); err == nil {
+		defer f.Close()
+		img, err := png.Decode(f)
+		if err == nil {
+			return ebiten.NewImageFromImage(img), nil
+		}
+	}
+
+	romData, err := os.ReadFile(romPath)
+	if err != nil {
+		return nil, err
+	}
+
+	m := machine.New(romData)
+	var bestFrame []byte
+	bestScore := -1
+
+	for i := 0; i < 360; i++ {
+		if (i >= 80 && i <= 95) || (i >= 180 && i <= 195) {
+			m.CPU.Pad1 = 0xEF
+		} else {
+			m.CPU.Pad1 = 0xFF
+		}
+		m.RunFrame()
+
+		if i >= 60 {
+			score := evalFrameScore(m.VDP.Frame[:])
+			if score > bestScore {
+				bestScore = score
+				if bestFrame == nil {
+					bestFrame = make([]byte, len(m.VDP.Frame))
+				}
+				copy(bestFrame, m.VDP.Frame[:])
+			}
+		}
+	}
+
+	if bestFrame == nil {
+		bestFrame = m.VDP.Frame[:]
+	}
+
+	rgba := image.NewRGBA(image.Rect(0, 0, vdp.ScreenW, vdp.ScreenH))
+	copy(rgba.Pix, bestFrame)
+
+	if outF, err := os.Create(thumbPath); err == nil {
+		_ = png.Encode(outF, rgba)
+		outF.Close()
+	}
+
+	return ebiten.NewImageFromImage(rgba), nil
+}
+
+// ---------- Estados de la Aplicación ----------
+
+type AppState int
+
+const (
+	StateLoading AppState = iota
+	StateMenu
+	StatePlaying
+)
 
 type game struct {
+	state      AppState
+	romFiles   []string
+	roms       []RomItem
+	loadingIdx int
+	selected   int
+	curTitle   string
 	m          *machine.Machine
 	img        *ebiten.Image
 	fullscreen bool
-	stats      bool
-	frames     int
+	crop       bool
 	audioBuf   *audioBuffer
+	dsp        AudioDSP
 	monoBuf    []byte
 	stereoBuf  []byte
-	crop       bool
+	samplesBuf []int16
 	drawOp     ebiten.DrawImageOptions
+	frames     int
+
+	// Filtros de post-procesado
+	videoFilter VideoFilter
+	audioFilter AudioFilter
+
+	// Notificación en pantalla (OSD)
+	osdText  string
+	osdTimer int
+
+	// Textura de scanlines CRT
+	scanlineImg *ebiten.Image
+}
+
+func (g *game) loadGame(path string) error {
+	rom, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	g.m = machine.New(rom)
+	g.m.CPU.PSG.SetSampleRate(sampleRate)
+	g.audioBuf.Reset()
+	return nil
+}
+
+func (g *game) showOSD(msg string) {
+	g.osdText = msg
+	g.osdTimer = 110 // ~1.8 segundos a 60 FPS
 }
 
 func (g *game) Update() error {
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
-		return ebiten.Termination
+	g.frames++
+	if g.osdTimer > 0 {
+		g.osdTimer--
 	}
+
 	if inpututil.IsKeyJustPressed(ebiten.KeyF11) {
 		g.fullscreen = !g.fullscreen
 		ebiten.SetFullscreen(g.fullscreen)
 	}
 
-	g.m.CPU.Pad1 = readPad(pad1Keys)
-	g.m.CPU.Pad2 = readPad(pad2Keys)
+	// Teclas rápidas globales para cambiar filtros
+	if inpututil.IsKeyJustPressed(ebiten.KeyF1) || inpututil.IsKeyJustPressed(ebiten.KeyV) {
+		g.videoFilter = (g.videoFilter + 1) % 4
+		g.showOSD(fmt.Sprintf("VÍDEO: %s", videoFilterNames[g.videoFilter]))
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF2) || inpututil.IsKeyJustPressed(ebiten.KeyB) {
+		g.audioFilter = (g.audioFilter + 1) % 4
+		g.showOSD(fmt.Sprintf("AUDIO: %s", audioFilterNames[g.audioFilter]))
+	}
 
-	g.m.RunFrame()
+	switch g.state {
+	case StateLoading:
+		if g.loadingIdx < len(g.romFiles) {
+			path := g.romFiles[g.loadingIdx]
+			thumb, err := generateSmartThumbnail(path)
+			if err != nil {
+				thumb = ebiten.NewImage(vdp.ScreenW, vdp.ScreenH)
+				thumb.Fill(color.RGBA{20, 20, 30, 255})
+			}
+			g.roms = append(g.roms, RomItem{
+				Path:      path,
+				Title:     cleanTitle(path),
+				Thumbnail: thumb,
+			})
+			g.loadingIdx++
+		} else {
+			g.state = StateMenu
+			ebiten.SetWindowTitle("gosms - Sega Master System Launcher")
+		}
 
-	// Master System NTSC: 3579545 / (228 * 262) = 59.9227 Hz -> 48000 / 59.9227 = 801 muestras/frame
-	const samplesPerFrame = 801
-	monoBytes := samplesPerFrame * 2
-	if len(g.monoBuf) < monoBytes {
-		g.monoBuf = make([]byte, monoBytes)
-	}
-	g.m.PSG.Render(g.monoBuf[:monoBytes])
+	case StateMenu:
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			return ebiten.Termination
+		}
+		if len(g.roms) > 0 {
+			if inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) {
+				g.selected = (g.selected + 1) % len(g.roms)
+			}
+			if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyA) {
+				g.selected = (g.selected - 1 + len(g.roms)) % len(g.roms)
+			}
+			if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+				if err := g.loadGame(g.roms[g.selected].Path); err != nil {
+					log.Printf("Error cargando juego: %v", err)
+				} else {
+					g.state = StatePlaying
+					g.curTitle = g.roms[g.selected].Title
+				}
+			}
+		}
 
-	stereoBytes := samplesPerFrame * 4
-	if len(g.stereoBuf) < stereoBytes {
-		g.stereoBuf = make([]byte, stereoBytes)
-	}
-	for i := 0; i < samplesPerFrame; i++ {
-		lo := g.monoBuf[i*2]
-		hi := g.monoBuf[i*2+1]
-		g.stereoBuf[i*4+0] = lo
-		g.stereoBuf[i*4+1] = hi
-		g.stereoBuf[i*4+2] = lo
-		g.stereoBuf[i*4+3] = hi
-	}
-	g.audioBuf.Write(g.stereoBuf[:stereoBytes])
+	case StatePlaying:
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			g.state = StateMenu
+			g.m = nil
+			g.audioBuf.Reset()
+			ebiten.SetWindowTitle("gosms - Sega Master System Launcher")
+			return nil
+		}
 
-	// Rendimiento: sirve para comprobar que la emulación va a 60 Hz (si va más
-	// lenta, la música también se reproduce más lenta, porque el motor de sonido
-	// del juego avanza con la interrupción de frame).
-	g.frames++
-	if g.frames%30 == 0 {
-		ebiten.SetWindowTitle(fmt.Sprintf("Alex Kidd - Sega Master System   %.0f fps  %.1f TPS",
-			ebiten.ActualFPS(), ebiten.ActualTPS()))
+		if g.frames%30 == 0 {
+			ebiten.SetWindowTitle(fmt.Sprintf("gosms - %s   %.0f FPS  •  %.1f TPS",
+				g.curTitle, ebiten.ActualFPS(), ebiten.ActualTPS()))
+		}
+
+		g.m.CPU.Pad1 = readPad(pad1Keys)
+		g.m.CPU.Pad2 = readPad(pad2Keys)
+		g.m.RunFrame()
+
+		// 1. Generar audio mono base del PSG
+		monoBytes := samplesPerFrame * 2
+		if len(g.monoBuf) < monoBytes {
+			g.monoBuf = make([]byte, monoBytes)
+		}
+		g.m.PSG.Render(g.monoBuf[:monoBytes])
+
+		// 2. Convertir a int16 estéreo
+		if len(g.samplesBuf) < samplesPerFrame*2 {
+			g.samplesBuf = make([]int16, samplesPerFrame*2)
+		}
+		for i := 0; i < samplesPerFrame; i++ {
+			val := int16(uint16(g.monoBuf[i*2]) | uint16(g.monoBuf[i*2+1])<<8)
+			g.samplesBuf[i*2] = val
+			g.samplesBuf[i*2+1] = val
+		}
+
+		// 3. Aplicar filtro de audio DSP seleccionado
+		g.dsp.Process(g.samplesBuf[:samplesPerFrame*2], g.audioFilter)
+
+		// 4. Encolar PCM en el buffer de reproducción
+		stereoBytes := samplesPerFrame * 4
+		if len(g.stereoBuf) < stereoBytes {
+			g.stereoBuf = make([]byte, stereoBytes)
+		}
+		for i := 0; i < samplesPerFrame*2; i++ {
+			s := g.samplesBuf[i]
+			g.stereoBuf[i*2] = byte(s)
+			g.stereoBuf[i*2+1] = byte(s >> 8)
+		}
+		g.audioBuf.Write(g.stereoBuf[:stereoBytes])
 	}
-	if g.stats && g.frames%60 == 0 {
-		fmt.Fprintf(os.Stderr, "frame %d  fps=%.1f  tps=%.1f\n", g.frames, ebiten.ActualFPS(), ebiten.ActualTPS())
-	}
+
 	return nil
 }
 
+func (g *game) drawLoading(screen *ebiten.Image) {
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
+	screen.Fill(color.RGBA{11, 15, 21, 255})
+
+	vector.DrawFilledRect(screen, 0, 0, float32(sw), 54, color.RGBA{9, 12, 18, 255}, true)
+	vector.DrawFilledRect(screen, 0, 54, float32(sw), 2, color.RGBA{0, 140, 255, 255}, true)
+	vector.DrawFilledRect(screen, 24, 13, 68, 28, color.RGBA{0, 85, 204, 255}, true)
+	ebitenutil.DebugPrintAt(screen, "SEGA", 42, 19)
+	ebitenutil.DebugPrintAt(screen, "GOSMS  •  INICIALIZANDO BIBLIOTECA", 106, 19)
+
+	authorBadge := fmt.Sprintf("DEV: %s", strings.ToUpper(authorName))
+	authorX := sw - len(authorBadge)*6 - 36
+	vector.DrawFilledRect(screen, float32(authorX-8), 13, float32(len(authorBadge)*6+24), 28, color.RGBA{22, 27, 36, 255}, true)
+	ebitenutil.DebugPrintAt(screen, authorBadge, authorX+4, 19)
+
+	centerX := float32(sw) / 2
+	centerY := float32(sh)/2 - 30
+	radius := float32(36)
+
+	dots := 12
+	baseAngle := float64(g.frames) * 0.12
+	for i := 0; i < dots; i++ {
+		angle := baseAngle + float64(i)*(2*math.Pi/float64(dots))
+		px := centerX + radius*float32(math.Cos(angle))
+		py := centerY + radius*float32(math.Sin(angle))
+
+		alpha := uint8(40 + (i * 215 / dots))
+		dotSize := float32(2.5 + float64(i)*0.2)
+		vector.DrawFilledCircle(screen, px, py, dotSize, color.RGBA{0, 160, 255, alpha}, true)
+	}
+
+	statusTitle := "GENERANDO CARATULAS INTELIGENTES..."
+	ebitenutil.DebugPrintAt(screen, statusTitle, sw/2-len(statusTitle)*3, int(centerY)+60)
+
+	curGame := ""
+	if g.loadingIdx < len(g.romFiles) {
+		curGame = cleanTitle(g.romFiles[g.loadingIdx])
+	}
+	progressText := fmt.Sprintf("Analizando: %s [ %d / %d ]", curGame, g.loadingIdx+1, len(g.romFiles))
+	ebitenutil.DebugPrintAt(screen, progressText, sw/2-len(progressText)*3, int(centerY)+84)
+}
+
+func (g *game) drawCard(screen *ebiten.Image, item RomItem, cx, cy, w, h float32, isCenter bool) {
+	x := cx - w/2
+	y := cy - h/2
+
+	if isCenter {
+		pulse := float32((math.Sin(float64(g.frames)*0.08) + 1.0) / 2.0)
+		r := uint8(0 + pulse*60)
+		gr := uint8(140 + pulse*80)
+		bl := uint8(255)
+
+		vector.DrawFilledRect(screen, x-5, y-5, w+10, h+10, color.RGBA{r, gr, bl, 255}, true)
+		vector.DrawFilledRect(screen, x-2, y-2, w+4, h+4, color.RGBA{230, 245, 255, 220}, true)
+	} else {
+		vector.DrawFilledRect(screen, x-2, y-2, w+4, h+4, color.RGBA{45, 55, 72, 255}, true)
+	}
+
+	vector.DrawFilledRect(screen, x, y, w, h, color.RGBA{20, 24, 33, 255}, true)
+
+	if item.Thumbnail != nil {
+		scaleX := float64(w) / float64(vdp.ScreenW)
+		scaleY := float64(h) / float64(vdp.ScreenH)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(scaleX, scaleY)
+		op.GeoM.Translate(float64(x), float64(y))
+		if !isCenter {
+			op.ColorScale.Scale(0.35, 0.35, 0.45, 1.0)
+		}
+		op.Filter = ebiten.FilterLinear
+		screen.DrawImage(item.Thumbnail, op)
+	}
+}
+
+func (g *game) drawMenu(screen *ebiten.Image) {
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
+
+	screen.Fill(color.RGBA{11, 15, 21, 255})
+	vector.DrawFilledRect(screen, 0, 0, float32(sw), float32(sh)/2, color.RGBA{16, 22, 34, 255}, false)
+
+	// Cabecera superior
+	vector.DrawFilledRect(screen, 0, 0, float32(sw), 54, color.RGBA{9, 12, 18, 255}, true)
+	vector.DrawFilledRect(screen, 0, 54, float32(sw), 2, color.RGBA{0, 140, 255, 255}, true)
+
+	vector.DrawFilledRect(screen, 24, 13, 68, 28, color.RGBA{0, 85, 204, 255}, true)
+	ebitenutil.DebugPrintAt(screen, "SEGA", 42, 19)
+	ebitenutil.DebugPrintAt(screen, "GOSMS  •  MASTER SYSTEM", 106, 19)
+
+	authorBadge := fmt.Sprintf("DEV: %s", strings.ToUpper(authorName))
+	authorX := sw - len(authorBadge)*6 - 36
+	vector.DrawFilledRect(screen, float32(authorX-8), 13, float32(len(authorBadge)*6+24), 28, color.RGBA{22, 27, 36, 255}, true)
+	vector.DrawFilledRect(screen, float32(authorX-8), 13, float32(len(authorBadge)*6+24), 28, color.RGBA{0, 128, 255, 120}, false)
+	ebitenutil.DebugPrintAt(screen, authorBadge, authorX+4, 19)
+
+	if len(g.roms) == 0 {
+		ebitenutil.DebugPrintAt(screen, "No se encontraron juegos en la carpeta ./roms", sw/2-140, sh/2)
+		return
+	}
+
+	centerY := float32(sh) / 2
+	mainW := float32(360)
+	mainH := float32(270)
+	sideW := float32(240)
+	sideH := float32(180)
+
+	prevIdx := (g.selected - 1 + len(g.roms)) % len(g.roms)
+	nextIdx := (g.selected + 1) % len(g.roms)
+
+	if len(g.roms) > 1 {
+		g.drawCard(screen, g.roms[prevIdx], float32(sw)/2-280, centerY-15, sideW, sideH, false)
+	}
+	if len(g.roms) > 2 {
+		g.drawCard(screen, g.roms[nextIdx], float32(sw)/2+280, centerY-15, sideW, sideH, false)
+	}
+
+	g.drawCard(screen, g.roms[g.selected], float32(sw)/2, centerY-15, mainW, mainH, true)
+
+	cur := g.roms[g.selected]
+	titleText := fmt.Sprintf("<   %s   >", strings.ToUpper(cur.Title))
+	ebitenutil.DebugPrintAt(screen, titleText, sw/2-len(titleText)*3, int(centerY+mainH/2)+14)
+
+	pageText := fmt.Sprintf("[  %d / %d  ]", g.selected+1, len(g.roms))
+	ebitenutil.DebugPrintAt(screen, pageText, sw/2-len(pageText)*3, int(centerY+mainH/2)+32)
+
+	// Barra inferior
+	vector.DrawFilledRect(screen, 0, float32(sh)-52, float32(sw), 52, color.RGBA{9, 12, 18, 255}, true)
+	vector.DrawFilledRect(screen, 0, float32(sh)-52, float32(sw), 1, color.RGBA{30, 42, 58, 255}, true)
+
+	hint := "[ < / > ] Elegir   [ ENTER ] Jugar   [ F1 ] Vídeo   [ F2 ] Audio   [ F11 ] Pantalla Completa   [ ESC ] Salir"
+	ebitenutil.DebugPrintAt(screen, hint, sw/2-len(hint)*3, sh-38)
+
+	credit := fmt.Sprintf("gosms  ©  Creado por %s", authorName)
+	ebitenutil.DebugPrintAt(screen, credit, sw/2-len(credit)*3, sh-18)
+}
+
 func (g *game) Draw(screen *ebiten.Image) {
+	switch g.state {
+	case StateLoading:
+		g.drawLoading(screen)
+		return
+	case StateMenu:
+		g.drawMenu(screen)
+		return
+	}
+
+	// 1. Cargar píxeles del VDP
 	g.img.WritePixels(g.m.VDP.Frame[:])
 
 	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
@@ -182,44 +651,94 @@ func (g *game) Draw(screen *ebiten.Image) {
 	}
 
 	scale := math.Min(float64(sw)/srcW, float64(sh)/srcH)
+	destX := (float64(sw) - srcW*scale) / 2
+	destY := (float64(sh) - srcH*scale) / 2
+
 	g.drawOp.GeoM.Reset()
 	g.drawOp.GeoM.Scale(scale, scale)
-	g.drawOp.GeoM.Translate((float64(sw)-srcW*scale)/2, (float64(sh)-srcH*scale)/2)
-	g.drawOp.Filter = ebiten.FilterNearest
-	screen.DrawImage(imgToDraw, &g.drawOp)
+	g.drawOp.GeoM.Translate(destX, destY)
+	g.drawOp.ColorScale.Reset()
+
+	// 2. Aplicar filtro de vídeo seleccionado
+	switch g.videoFilter {
+	case VideoFilterPixelPerfect:
+		g.drawOp.Filter = ebiten.FilterNearest
+		screen.DrawImage(imgToDraw, &g.drawOp)
+
+	case VideoFilterSmooth:
+		g.drawOp.Filter = ebiten.FilterLinear
+		screen.DrawImage(imgToDraw, &g.drawOp)
+
+	case VideoFilterMonochrome:
+		// Estilo retro fósforo verde Game Boy
+		g.drawOp.Filter = ebiten.FilterNearest
+		g.drawOp.ColorScale.Scale(0.3, 1.2, 0.4, 1.0)
+		screen.DrawImage(imgToDraw, &g.drawOp)
+
+	case VideoFilterScanlines:
+		g.drawOp.Filter = ebiten.FilterNearest
+		screen.DrawImage(imgToDraw, &g.drawOp)
+
+		// Rejilla de scanlines nítida adaptada a la escala de pantalla
+		targetH := int(srcH * scale)
+		if g.scanlineImg == nil || g.scanlineImg.Bounds().Dy() != targetH {
+			g.scanlineImg = ebiten.NewImage(1, targetH)
+			for y := 0; y < targetH; y++ {
+				if y%3 == 2 { // Atenuación suave en la tercera línea de cada píxel
+					g.scanlineImg.Set(0, y, color.RGBA{0, 0, 0, 80})
+				}
+			}
+		}
+		scanOp := &ebiten.DrawImageOptions{}
+		scanOp.GeoM.Scale(srcW*scale, 1)
+		scanOp.GeoM.Translate(destX, destY)
+		screen.DrawImage(g.scanlineImg, scanOp)
+	}
+
+	// 3. Notificación OSD emergente al cambiar filtros (fondo translúcido + borde neón)
+	if g.osdTimer > 0 {
+		alpha := float32(1.0)
+		if g.osdTimer < 25 {
+			alpha = float32(g.osdTimer) / 25.0
+		}
+		badgeW := float32(len(g.osdText)*6 + 24)
+		vector.DrawFilledRect(screen, 20, 20, badgeW, 26, color.RGBA{10, 15, 24, uint8(210 * alpha)}, true)
+		vector.StrokeRect(screen, 20, 20, badgeW, 26, 1.5, color.RGBA{0, 160, 255, uint8(240 * alpha)}, true)
+		ebitenutil.DebugPrintAt(screen, g.osdText, 30, 26)
+	}
 }
 
-// Layout devuelve el tamaño real de la ventana para que la imagen se reescale
-// al redimensionar.
 func (g *game) Layout(outsideWidth, outsideHeight int) (int, int) {
+	if g.state == StateMenu || g.state == StateLoading {
+		return menuW, menuH
+	}
 	return outsideWidth, outsideHeight
+}
+
+func findRomFiles(dir string) []string {
+	var files []string
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return files
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		if ext == ".sms" || ext == ".gg" || ext == ".bin" {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	return files
 }
 
 func main() {
 	scale := flag.Float64("scale", 3, "factor de escala de la ventana")
 	fullscreen := flag.Bool("fullscreen", false, "arrancar a pantalla completa")
-	skip := flag.Int("skip", 0, "emular N frames antes de mostrar la ventana (para saltar a un punto concreto)")
-	stats := flag.Bool("stats", false, "escribir FPS/TPS en stderr una vez por segundo")
-	crop := flag.Bool("crop", false, "recortar los 8 píxeles de overscan lateral izquierdo")
+	crop := flag.Bool("crop", true, "recortar los 8 píxeles de overscan lateral izquierdo")
+	romsDir := flag.String("roms", "roms", "directorio donde buscar juegos")
 	flag.Parse()
-
-	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Uso: emulator [-scale N] [-fullscreen] [-skip N] [-stats] <juego.sms>")
-		os.Exit(1)
-	}
-
-	rom, err := os.ReadFile(flag.Arg(0))
-	if err != nil {
-		log.Fatalf("error al cargar la ROM: %v", err)
-	}
-
-	m := machine.New(rom)
-	m.CPU.PSG.SetSampleRate(sampleRate)
-
-	// Avance rápido inicial: útil para saltar directamente a una escena.
-	for i := 0; i < *skip; i++ {
-		m.RunFrame()
-	}
 
 	audioBuf := newAudioBuffer()
 	audioCtx := audio.NewContext(sampleRate)
@@ -231,22 +750,38 @@ func main() {
 	player.Play()
 
 	g := &game{
-		m:          m,
-		img:        ebiten.NewImage(vdp.ScreenW, vdp.ScreenH),
-		fullscreen: *fullscreen,
-		stats:      *stats,
-		audioBuf:   audioBuf,
-		crop:       *crop,
+		state:       StateLoading,
+		img:         ebiten.NewImage(vdp.ScreenW, vdp.ScreenH),
+		fullscreen:  *fullscreen,
+		crop:        *crop,
+		audioBuf:    audioBuf,
+		videoFilter: VideoFilterPixelPerfect, // Por defecto arrancamos con CRT Scanlines para máxima autenticidad
+		audioFilter: AudioFilterWarm,         // Por defecto altavoz cálido analógico
 	}
 
-	ebiten.SetWindowTitle("Alex Kidd - Sega Master System")
+	if flag.NArg() > 0 {
+		if err := g.loadGame(flag.Arg(0)); err != nil {
+			log.Fatalf("error al cargar la ROM: %v", err)
+		}
+		g.state = StatePlaying
+		g.curTitle = cleanTitle(flag.Arg(0))
+	} else {
+		g.romFiles = findRomFiles(*romsDir)
+		ebiten.SetWindowTitle("gosms - Inicializando...")
+	}
+
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	if *fullscreen {
 		ebiten.SetFullscreen(true)
 	}
 	w := int(float64(vdp.ScreenW) * *scale)
 	h := int(float64(vdp.ScreenH) * *scale)
+	if g.state != StatePlaying {
+		w = menuW
+		h = menuH
+	}
 	ebiten.SetWindowSize(w, h)
+
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)
 	}
