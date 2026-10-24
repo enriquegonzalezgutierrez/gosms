@@ -27,3 +27,7 @@ run-*.txt
 
 # Assets volcados y texturas HD con copyright
 assets/
+
+emulator
+bin/
+*.sav

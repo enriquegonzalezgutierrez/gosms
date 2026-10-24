@@ -436,6 +436,7 @@ func (g *game) loadGame(path string) error {
 	g.curRomPath = path
 	g.m = machine.New(rom)
 	machine.InitHD(path)
+	g.hdMode = false
 	g.m.CPU.PSG.SetSampleRate(sampleRate)
 	g.audioBuf.Reset()
 
@@ -790,8 +791,11 @@ func (g *game) Draw(screen *ebiten.Image) {
 	g.drawOp.GeoM.Translate(destX, destY)
 	g.drawOp.ColorScale.Reset()
 
-	// 2. Aplicar filtro de vídeo seleccionado
-	switch g.videoFilter {
+	// 2. Renderizado exclusivo: Modo HD o Modo Original con filtros
+	if g.hdMode && machine.HD != nil && machine.HD.Active {
+		g.drawHDOverlay(screen, scale, destX, destY)
+	} else {
+		switch g.videoFilter {
 	case VideoFilterEPX:
 		if g.epxImg == nil {
 			g.epxImg = ebiten.NewImage(vdp.ScreenW*2, vdp.ScreenH*2)
@@ -920,9 +924,6 @@ func (g *game) Draw(screen *ebiten.Image) {
 		scanOp.GeoM.Translate(destX, destY)
 		screen.DrawImage(g.scanlineImg, scanOp)
 	}
-
-	if machine.HD != nil && machine.HD.Active {
-		g.drawHDOverlay(screen, scale, destX, destY)
 	}
 
 	// 3. Notificación OSD emergente al cambiar filtros (fondo translúcido + borde neón)
