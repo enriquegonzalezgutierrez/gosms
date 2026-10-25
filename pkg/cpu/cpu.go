@@ -71,21 +71,33 @@ func (c *CPU) updateBanks() {
 	c.page2 = c.ROM[b2 : b2+BankSize]
 }
 
+func isCodemastersROM(rom []byte) bool {
+	if len(rom) < 0x8000 {
+		return false
+	}
+	c1 := uint32(rom[0x7FE6]) | (uint32(rom[0x7FE7]) << 8)
+	c2 := uint32(rom[0x7FE8]) | (uint32(rom[0x7FE9]) << 8)
+	zeros := rom[0x7FEA] == 0 && rom[0x7FEB] == 0 && rom[0x7FEC] == 0 &&
+		rom[0x7FED] == 0 && rom[0x7FEE] == 0 && rom[0x7FEF] == 0
+	return zeros && rom[0x7FE0] == 0x10 && c1 != 0 && (c1+c2) == 0x10000
+}
+
 // NewCPU crea una CPU con una ROM y un VDP/PSG asociados.
 func NewCPU(rom []byte) *CPU {
 	if len(rom)%1024 == 512 {
 		rom = rom[512:]
 	}
 	c := &CPU{
-		SP:      0xDFF0,
-		ROM:     rom,
-		Bank:    [3]byte{0, 1, 2},
-		ixName:  "HL",
-		memName: "(HL)",
-		VDP:     vdp.New(),
-		PSG:     psg.New(44100),
-		Pad1:    0xFF,
-		Pad2:    0xFF,
+		SP:            0xDFF0,
+		ROM:           rom,
+		Bank:          [3]byte{0, 1, 2},
+		ixName:        "HL",
+		memName:       "(HL)",
+		isCodemasters: isCodemastersROM(rom),
+		VDP:           vdp.New(),
+		PSG:           psg.New(44100),
+		Pad1:          0xFF,
+		Pad2:          0xFF,
 	}
 	c.updateBanks()
 	return c
@@ -150,22 +162,8 @@ func (c *CPU) WriteByte(addr uint16, val byte) {
 		}
 	}
 
-	// Detección dinámica de mapper Codemasters
-	if addr == 0x8000 {
-		}
-	if (addr == 0x0000 || addr == 0x4000 || addr == 0x8000)  {
-		c.isCodemasters = true
-		slot := addr / 0x4000
-		n := len(c.ROM) / BankSize
-		if n > 0 {
-			c.Bank[slot] = byte(int(val) % n)
-			c.updateBanks()
-		}
-		return
-	}
-
 	if addr < 0xC000 {
-		return // ROM
+		return // ROM de solo lectura
 	}
 
 	if addr == 0xFFFC { // Registro de control de SRAM del mapper Sega

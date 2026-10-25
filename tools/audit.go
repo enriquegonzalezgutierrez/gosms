@@ -23,7 +23,7 @@ type AuditResult struct {
 	MaxColors  int
 	MaxScore   int
 	FinalPC    uint16
-	Status     string // "OK", "NEGRO", "COLGADO", "ERROR"
+	Status     string
 	ErrorMsg   string
 }
 
@@ -76,26 +76,21 @@ func auditRom(path string) AuditResult {
 	}()
 
 	m := machine.New(data)
-	bestScore := 0
-	maxCols := 0
-	var bestFrame []byte
-
-	maxF := 360
+	
+	// Detección automática PAL (50Hz) para juegos europeos
 	nameUpper := strings.ToUpper(path)
 	if strings.Contains(nameUpper, "(E)") || strings.Contains(nameUpper, "(UE)") || strings.Contains(nameUpper, "EUROPE") {
 		m.LinesPerFrame = 313
 	}
+
+	bestScore := 0
+	maxCols := 0
+	var bestFrame []byte
+
+	maxF := 1200 // Margen generoso para intros largas
 	for f := 0; f < maxF; f++ {
-		if f == 359 && maxCols < 4 {
-			maxF = 650 // Margen extra a intros lentas
-			// Si es europeo y no arranca a 60Hz, conmutar a 50Hz (PAL 313 líneas)
-			nameUpper := strings.ToUpper(path)
-			if strings.Contains(nameUpper, "(E)") || strings.Contains(nameUpper, "(UE)") || strings.Contains(nameUpper, "EUROPE") {
-				m.LinesPerFrame = 313
-			}
-		}
 		// Pulsar botones 1 y 2 para saltar intros
-		if f%30 >= 10 && f%30 <= 20 {
+		if f%40 >= 10 && f%40 <= 30 {
 			m.CPU.Pad1 = 0xCF
 		} else {
 			m.CPU.Pad1 = 0xFF
@@ -113,7 +108,6 @@ func auditRom(path string) AuditResult {
 			}
 			copy(bestFrame, m.VDP.Frame[:])
 		}
-		// Latch si la CRAM se activa en cualquier fotograma
 		for _, b := range m.VDP.CRAM {
 			if b != 0 {
 				res.CRAMActive = true
@@ -126,7 +120,6 @@ func auditRom(path string) AuditResult {
 	res.MaxScore = bestScore
 	res.FinalPC = m.CPU.PC
 
-	// Chequeo de VRAM
 	for _, b := range m.VDP.VRAM {
 		if b != 0 {
 			res.VRAMActive = true
@@ -151,7 +144,6 @@ func auditRom(path string) AuditResult {
 		res.Status = "NEGRO"
 	}
 
-	// Regeneración automática de carátulas (.thumbnails/<baseName>.png) si no existe o estaba negra
 	if bestScore > 0 && len(bestFrame) > 0 {
 		thumbDir := ".thumbnails"
 		_ = os.MkdirAll(thumbDir, 0755)
@@ -160,7 +152,7 @@ func auditRom(path string) AuditResult {
 
 		shouldSave := false
 		if f, err := os.Open(thumbPath); err != nil {
-			shouldSave = true // No existía
+			shouldSave = true
 		} else {
 			img, err := png.Decode(f)
 			f.Close()
@@ -172,7 +164,7 @@ func auditRom(path string) AuditResult {
 				draw.Draw(rgba, b, img, image.Point{}, draw.Src)
 				_, score := evalScore(rgba.Pix)
 				if score <= 0 {
-					shouldSave = true // La carátula existente estaba negra
+					shouldSave = true
 				}
 			}
 		}
@@ -205,7 +197,7 @@ func main() {
 	var roms []string
 	for _, e := range entries {
 		ext := strings.ToLower(filepath.Ext(e.Name()))
-		if !e.IsDir() && (ext == ".sms" || ext == ".bin") {
+	if !e.IsDir() && (ext == ".sms" || ext == ".bin") {
 			if filter == "" || strings.Contains(strings.ToLower(e.Name()), filter) {
 				roms = append(roms, filepath.Join(romsDir, e.Name()))
 			}

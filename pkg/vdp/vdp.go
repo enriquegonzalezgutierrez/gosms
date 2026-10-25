@@ -88,6 +88,8 @@ type VDP struct {
 	lineCounter int
 	vScroll     byte
 	irq         bool
+	IsPAL       bool
+
 
 	// Frame es el framebuffer RGBA (256x192) listo para volcar.
 	Frame [ScreenW * ScreenH * 4]byte
@@ -189,10 +191,15 @@ func (v *VDP) WriteControl(val byte) {
 // VCounter devuelve el contador vertical ($7E).
 // VCounter devuelve el contador vertical ($7E), emulando el peculiar salto hardware NTSC.
 func (v *VDP) VCounter() byte {
+	if v.IsPAL {
+		if v.line <= 242 {
+			return byte(v.line)
+		}
+		return byte(v.line - 57)
+	}
 	if v.line <= 218 {
 		return byte(v.line)
 	}
-	// Salto hacia atrás en hardware NTSC: la línea 219 devuelve 213 (0xD5)
 	return byte(v.line - 6)
 }
 

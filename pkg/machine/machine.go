@@ -25,6 +25,7 @@ func New(rom []byte) *Machine {
 func (m *Machine) RunCycles(n int) {
 	target := m.CPU.Cycles + uint64(n)
 	for m.CPU.Cycles < target {
+		m.CPU.IRQ = m.VDP.IRQ() // Sincronización perfecta del IRQ a nivel de instrucción
 		_, _, ok := m.CPU.Step()
 		if !ok {
 			break
@@ -39,6 +40,7 @@ func (m *Machine) RunFrame() {
 	if lines == 0 {
 		lines = vdp.TotalLines
 	}
+	m.VDP.IsPAL = (lines == 313)
 	for line := 0; line < lines; line++ {
 		if line < vdp.ScreenH {
 			v.RenderLine(line)
