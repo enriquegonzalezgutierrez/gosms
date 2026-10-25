@@ -17,6 +17,52 @@ func decodeColorVDP(c byte) color.RGBA {
 	return color.RGBA{R: r, G: g, B: b, A: 255}
 }
 
+var (
+	fallbackSprImg = ebiten.NewImage(8, 8)
+	fallbackSprBuf = make([]byte, 8*8*4)
+)
+
+func drawFallbackSprite(screen *ebiten.Image, tileData []byte, cram []byte, drawX, drawY, scale float64) {
+	pal := make([]color.RGBA, 16)
+	for i := 0; i < 16; i++ {
+		pal[i] = decodeColorVDP(cram[i])
+	}
+	hasPixels := false
+	for y := 0; y < 8; y++ {
+		b0 := tileData[y*4]
+		b1 := tileData[y*4+1]
+		b2 := tileData[y*4+2]
+		b3 := tileData[y*4+3]
+		for x := 0; x < 8; x++ {
+			bit := 7 - x
+			cIdx := ((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3)
+			idx := (y*8 + x) * 4
+			if cIdx == 0 {
+				fallbackSprBuf[idx] = 0
+				fallbackSprBuf[idx+1] = 0
+				fallbackSprBuf[idx+2] = 0
+				fallbackSprBuf[idx+3] = 0
+			} else {
+				c := pal[cIdx&0x0F]
+				fallbackSprBuf[idx] = c.R
+				fallbackSprBuf[idx+1] = c.G
+				fallbackSprBuf[idx+2] = c.B
+				fallbackSprBuf[idx+3] = 255
+				hasPixels = true
+			}
+		}
+	}
+	if !hasPixels {
+		return
+	}
+	fallbackSprImg.WritePixels(fallbackSprBuf)
+	op := &ebiten.DrawImageOptions{}
+	op.Filter = ebiten.FilterNearest
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(drawX, drawY)
+	screen.DrawImage(fallbackSprImg, op)
+}
+
 type bgDrawItem struct {
 	img          *ebiten.Image
 	drawX, drawY float64
@@ -43,7 +89,7 @@ func (g *game) drawHDOverlay(screen *ebiten.Image, scale, destX, destY float64) 
 	cropOffset := float64(minX)
 	hdScale := scale / float64(machine.HD.Scale)
 
-	// 1. Fondo de Telón Base (Backdrop SMS)
+	// 1. Telón de fondo SMS
 	backdropCol := decodeColorVDP(v.CRAM[16+int(v.Reg[7]&0x0F)])
 	viewW := float32(float64(vdp.ScreenW-minX) * scale)
 	viewH := float32(float64(vdp.ScreenH) * scale)
@@ -52,7 +98,7 @@ func (g *game) drawHDOverlay(screen *ebiten.Image, scale, destX, destY float64) 
 	var bgLow []bgDrawItem
 	var bgHigh []bgDrawItem
 
-	// 2. Clasificar Tiles de Fondo en Normal y Prioritario
+	// 2. Fondo Normal y Prioritario
 	fineY := scrollY & 7
 	for r := -1; r < 25; r++ {
 		tileDrawY := r*8 - fineY
@@ -139,7 +185,7 @@ func (g *game) drawHDOverlay(screen *ebiten.Image, scale, destX, destY float64) 
 		drawBgItem(item)
 	}
 
-	// Capa 2: Sprites HD
+	// Capa 2: Sprites HD (con fallback continuo a píxel nativo si no está en HD)
 	satBase := int(v.Reg[5]&0x7E) << 7
 	patBase := int(v.Reg[6]&0x04) << 11
 	tall := v.Reg[1]&0x02 != 0
@@ -187,30 +233,31 @@ func (g *game) drawHDOverlay(screen *ebiten.Image, scale, destX, destY float64) 
 				continue
 			}
 
+			drawX := math.Floor(destX + (float64(sprX)-cropOffset)*scale)
+			drawY := math.Floor(destY + float64(sprY)*scale)
+
 			img := machine.HD.GetHDTile(tileData, sprCram, true)
 			if img != nil {
-				drawX := math.Floor(destX + (float64(sprX)-cropOffset)*scale)
-				drawY := math.Floor(destY + float64(sprY)*scale)
-
 				op := &ebiten.DrawImageOptions{}
 				op.Filter = ebiten.FilterLinear
 				op.GeoM.Scale(hdScale, hdScale)
 				op.GeoM.Translate(drawX, drawY)
 				screen.DrawImage(img, op)
+			} else {
+				drawFallbackSprite(screen, tileData, sprCram, drawX, drawY, scale)
 			}
 		}
 	}
 
-	// Capa 3: Fondo Prioritario (hojas de palmeras, HUD, etc.)
+	// Capa 3: Fondo Prioritario
 	for _, item := range bgHigh {
 		drawBgItem(item)
 	}
 
-	// 4. Recorte perfecto de bordes (Overscan Pillarbox)
+	// 4. Máscara de recorte de bordes 4:3
 	clipViewportHD(screen, destX, destY, float64(viewW), float64(viewH))
 }
 
-// ClipViewportHD enmascara los bordes exteriores garantizando un corte limpio 4:3
 func clipViewportHD(screen *ebiten.Image, destX, destY, viewW, viewH float64) {
 	sw, sh := float32(screen.Bounds().Dx()), float32(screen.Bounds().Dy())
 	black := color.RGBA{0, 0, 0, 255}
@@ -220,19 +267,15 @@ func clipViewportHD(screen *ebiten.Image, destX, destY, viewW, viewH float64) {
 	vW := float32(viewW)
 	vH := float32(viewH)
 
-	// Barra izquierda
 	if dX > 0 {
 		vector.DrawFilledRect(screen, 0, 0, dX, sh, black, false)
 	}
-	// Barra derecha
 	if dX+vW < sw {
 		vector.DrawFilledRect(screen, dX+vW, 0, sw-(dX+vW), sh, black, false)
 	}
-	// Barra superior
 	if dY > 0 {
 		vector.DrawFilledRect(screen, 0, 0, sw, dY, black, false)
 	}
-	// Barra inferior
 	if dY+vH < sh {
 		vector.DrawFilledRect(screen, 0, dY+vH, sw, sh-(dY+vH), black, false)
 	}

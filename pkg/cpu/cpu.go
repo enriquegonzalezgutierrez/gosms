@@ -122,7 +122,22 @@ func (c *CPU) WriteByte(addr uint16, val byte) {
 	if WatchAddr != 0 && addr == WatchAddr && MemWatch != nil {
 		MemWatch(addr, val, c)
 	}
-	// Escritura en SRAM de cartucho ($8000..$BFFF)
+
+	if c.isCodemasters {
+		if addr < 0xC000 {
+			slot := addr / 0x4000
+			n := len(c.ROM) / BankSize
+			if n > 0 {
+				c.Bank[slot] = byte(int(val) % n)
+				c.updateBanks()
+			}
+			return
+		}
+		c.RAM[(addr-0xC000)&0x1FFF] = val
+		return
+	}
+
+	// Escritura en SRAM de cartucho (000..)
 	if addr >= 0x8000 && addr < 0xC000 {
 		if c.RAMControl&0x08 != 0 {
 			offset := int(addr - 0x8000)
@@ -131,12 +146,28 @@ func (c *CPU) WriteByte(addr uint16, val byte) {
 			}
 			c.CartRAM[offset&0x7FFF] = val
 			c.SRAMDirty = true
+			return
+		}
+	}
+
+	// Detección dinámica de mapper Codemasters
+	if addr == 0x8000 {
+		}
+	if (addr == 0x0000 || addr == 0x4000 || addr == 0x8000)  {
+		c.isCodemasters = true
+		slot := addr / 0x4000
+		n := len(c.ROM) / BankSize
+		if n > 0 {
+			c.Bank[slot] = byte(int(val) % n)
+			c.updateBanks()
 		}
 		return
 	}
+
 	if addr < 0xC000 {
 		return // ROM
 	}
+
 	if addr == 0xFFFC { // Registro de control de SRAM del mapper Sega
 		c.RAMControl = val
 	}
@@ -147,29 +178,9 @@ func (c *CPU) WriteByte(addr uint16, val byte) {
 			c.updateBanks()
 		}
 	}
-	// Mapper Codemasters: paginacion por rangos
-	if c.isCodemasters && addr < 0xC000 {
-		slot := addr / 0x4000
-		n := len(c.ROM) / BankSize
-		if n > 0 {
-			c.Bank[slot] = byte(int(val) % n)
-			c.updateBanks()
-		}
-		return
-	}
-	if !c.isCodemasters && (addr == 0x0000 || addr == 0x4000 || addr == 0x8000) && addr < uint16(len(c.ROM)) {
-		c.isCodemasters = true
-		slot := addr / 0x4000
-		n := len(c.ROM) / BankSize
-		if n > 0 {
-			c.Bank[slot] = byte(int(val) % n)
-			c.updateBanks()
-		}
-	}
 	c.RAM[(addr-0xC000)&0x1FFF] = val
 }
 
-// LoadSRAM carga el archivo de guardado de partida si existe
 func (c *CPU) LoadSRAM(path string) {
 	c.SRAMPath = path
 	if data, err := os.ReadFile(path); err == nil {

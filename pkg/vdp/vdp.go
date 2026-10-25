@@ -211,13 +211,13 @@ func (v *VDP) ClearIRQ() { v.irq = false }
 func (v *VDP) SetLine(line int) {
 	v.line = line
 
-	if line == ScreenH { // comienza el VBlank
+	if line == ScreenH + 1 { // comienza el VBlank
 		v.Status |= 0x80
 		v.vScroll = v.Reg[9] // el scroll vertical se fija en el VBlank
 	}
 
 	// Contador de interrupción de línea (activo) y recarga continua durante VBlank
-	if line < ScreenH {
+	if line <= ScreenH {
 		if v.lineCounter == 0 {
 			v.lineCounter = int(v.Reg[10])
 			if v.Reg[0]&0x10 != 0 {

@@ -44,6 +44,7 @@ const (
 	VideoFilterEPX
 	VideoFilterSmooth
 	VideoFilterMonochrome
+	VideoFilterRemaster2026
 )
 
 var videoFilterNames = []string{
@@ -52,6 +53,7 @@ var videoFilterNames = []string{
 	"SCALE2X EPX (HD SUAVE)",
 	"SUAVIZADO BILINEAL",
 	"FÓSFORO VERDE MONOCROMO",
+	"REMASTER 2026 (HDR + CURVAS)",
 }
 
 type AudioFilter int
@@ -390,6 +392,39 @@ const (
 	StatePlaying
 )
 
+
+const shaderRemaster2026 = `
+//kage:unit pixels
+package main
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	// Muestreo del píxel central
+	c := imageSrc0At(srcPos)
+	
+	// 1. Suavizado subpíxel (Anti-aliasing)
+	cUp    := imageSrc0At(srcPos + vec2(0.0, -1.0))
+	cDown  := imageSrc0At(srcPos + vec2(0.0,  1.0))
+	cLeft  := imageSrc0At(srcPos + vec2(-1.0, 0.0))
+	cRight := imageSrc0At(srcPos + vec2( 1.0, 0.0))
+
+	edgeBlend := (cUp + cDown + cLeft + cRight) * 0.25
+	smoothCol := mix(c, edgeBlend, 0.3)
+
+	// 2. Realce de color OLED 2026
+	rgb := smoothCol.rgb
+	luma := dot(rgb, vec3(0.299, 0.587, 0.114))
+	rgb = mix(vec3(luma), rgb, 1.35)       // +35% Saturación
+	rgb = pow(rgb, vec3(0.85)) * 1.15      // Contraste curvo S
+
+	// 3. Bloom / Glow dinámico
+	bloom := max(rgb - vec3(0.6), vec3(0.0)) * 0.5
+	rgb += bloom
+
+	return vec4(rgb, c.a)
+}
+`
+var remasterShader *ebiten.Shader
+
 type game struct {
 	state      AppState
 	romFiles   []string
@@ -406,6 +441,7 @@ type game struct {
 	fullscreen bool
 	crop       bool
 	hdMode     bool
+	dumper     *LiveDumper
 	audioBuf   *audioBuffer
 	dsp        AudioDSP
 	monoBuf    []byte
@@ -437,6 +473,7 @@ func (g *game) loadGame(path string) error {
 	g.m = machine.New(rom)
 	machine.InitHD(path)
 	g.hdMode = false
+	g.dumper = newLiveDumper(path)
 	g.m.CPU.PSG.SetSampleRate(sampleRate)
 	g.audioBuf.Reset()
 
@@ -463,6 +500,33 @@ func (g *game) Update() error {
 	}
 
 	// Teclas rápidas globales para cambiar filtros
+	// F8: Pantallazo limpio para IA
+	if inpututil.IsKeyJustPressed(ebiten.KeyF7) {
+		if g.dumper != nil && g.img != nil {
+			shot := g.dumper.SaveScreenshot(g.img)
+			if shot != "" {
+				g.showOSD("📸 PANTALLAZO IA: " + shot)
+			}
+		}
+	}
+
+	// F9: Iniciar / Detener grabación de Dump en vivo
+	if inpututil.IsKeyJustPressed(ebiten.KeyF9) {
+		if g.dumper != nil {
+			g.dumper.Active = !g.dumper.Active
+			if g.dumper.Active {
+				g.showOSD("🔴 GRABANDO DUMP EN VIVO (F9 para guardar)")
+			} else {
+				saved := g.dumper.Save()
+				if saved > 0 {
+					g.showOSD(fmt.Sprintf("💾 DUMP GUARDADO: +%d NUEVOS tiles! (Total: %d)", saved, len(g.dumper.Manifest)))
+				} else {
+					g.showOSD(fmt.Sprintf("💾 DUMP OK: Zona ya volcada al 100%% (%d tiles)", len(g.dumper.Manifest)))
+				}
+			}
+		}
+	}
+
 	if inpututil.IsKeyJustPressed(ebiten.KeyF10) {
 		if machine.HD != nil && machine.HD.Active {
 			g.hdMode = !g.hdMode
@@ -477,7 +541,7 @@ func (g *game) Update() error {
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyF1) || inpututil.IsKeyJustPressed(ebiten.KeyV) {
-		g.videoFilter = (g.videoFilter + 1) % 5
+		g.videoFilter = (g.videoFilter + 1) % 6
 		g.showOSD(fmt.Sprintf("VÍDEO: %s", videoFilterNames[g.videoFilter]))
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF2) || inpututil.IsKeyJustPressed(ebiten.KeyB) {
@@ -504,7 +568,20 @@ func (g *game) Update() error {
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			return ebiten.Termination
 		}
-		if len(g.roms) > 0 {
+		// Tecla F3 para cambiar/recargar carpeta de roms
+	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
+		cfg := loadConfig()
+		// Alternar o buscar en directorio actual por defecto
+		if cfg.RomsDir == "roms" {
+			cfg.RomsDir = "."
+		} else {
+			cfg.RomsDir = "roms"
+		}
+		saveConfig(cfg)
+		g.selected = 0
+	}
+
+	if len(g.roms) > 0 {
 			// Tecla R: Regenerar carátula del juego seleccionado
 			if inpututil.IsKeyJustPressed(ebiten.KeyR) {
 				g.showOSD("REGENERANDO CARÁTULA...")
@@ -585,6 +662,11 @@ func (g *game) Update() error {
 		g.m.CPU.Pad1 = readPad(pad1Keys, 0)
 		g.m.CPU.Pad2 = readPad(pad2Keys, 1)
 		g.m.RunFrame()
+
+		// Capturar frame recién procesado si el dumper está activo
+		if g.dumper != nil && g.dumper.Active && g.m != nil && g.m.VDP != nil {
+			g.dumper.CaptureFrame(g.m.VDP)
+		}
 
 		// 1. Generar audio mono base del PSG
 		monoBytes := samplesPerFrame * 2
@@ -743,14 +825,18 @@ func (g *game) drawMenu(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, pageText, sw/2-len(pageText)*3, int(centerY+mainH/2)+32)
 
 	// Barra inferior
-	vector.DrawFilledRect(screen, 0, float32(sh)-52, float32(sw), 52, color.RGBA{9, 12, 18, 255}, true)
-	vector.DrawFilledRect(screen, 0, float32(sh)-52, float32(sw), 1, color.RGBA{30, 42, 58, 255}, true)
+	barH := float32(64)
+	vector.DrawFilledRect(screen, 0, float32(sh)-barH, float32(sw), barH, color.RGBA{9, 12, 18, 255}, true)
+	vector.DrawFilledRect(screen, 0, float32(sh)-barH, float32(sw), 1, color.RGBA{0, 140, 255, 180}, true)
 
-	hint := "[ < / > ] Elegir   [ ENTER ] Jugar   [ R ] Carátula   [ F1 ] Vídeo   [ F2 ] Audio   [ F11 ] Pantalla Completa   [ ESC ] Salir"
-	ebitenutil.DebugPrintAt(screen, hint, sw/2-len(hint)*3, sh-38)
+	hint1 := "[ ENTER ] Jugar   [ F10 ] Conmutar HD   [ F9 ] Grabar Dump HD (En Vivo)   [ F7 ] Captura IA"
+	ebitenutil.DebugPrintAt(screen, hint1, sw/2-len(hint1)*3, sh-50)
+
+	hint2 := "[ < / > ] Seleccionar   [ F3 ] Cambiar Carpeta ROMs   [ F1 ] Vídeo   [ F2 ] Audio   [ F11 ] Pantalla"
+	ebitenutil.DebugPrintAt(screen, hint2, sw/2-len(hint2)*3, sh-32)
 
 	credit := fmt.Sprintf("gosms  ©  Creado por %s", authorName)
-	ebitenutil.DebugPrintAt(screen, credit, sw/2-len(credit)*3, sh-18)
+	ebitenutil.DebugPrintAt(screen, credit, sw/2-len(credit)*3, sh-16)
 }
 
 func (g *game) Draw(screen *ebiten.Image) {
@@ -891,6 +977,23 @@ func (g *game) Draw(screen *ebiten.Image) {
 		g.drawOp.Filter = ebiten.FilterNearest
 		screen.DrawImage(imgHD, &g.drawOp)
 
+	case VideoFilterRemaster2026:
+		var err error
+		if remasterShader == nil {
+			remasterShader, err = ebiten.NewShader([]byte(shaderRemaster2026))
+			if err != nil {
+				fmt.Printf("Error shader: %v\n", err)
+			}
+		}
+		op := &ebiten.DrawRectShaderOptions{}
+		op.GeoM.Scale(scale, scale)
+		op.GeoM.Translate(destX, destY)
+		op.Images[0] = imgToDraw
+		op.Uniforms = map[string]any{
+			"SourceSize": []float32{float32(srcW), float32(srcH)},
+		}
+		screen.DrawRectShader(int(srcW), int(srcH), remasterShader, op)
+
 	case VideoFilterPixelPerfect:
 		g.drawOp.Filter = ebiten.FilterNearest
 		screen.DrawImage(imgToDraw, &g.drawOp)
@@ -946,6 +1049,8 @@ func (g *game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return outsideWidth, outsideHeight
 }
 
+// Variable global o de struct para la ruta actual de roms
+
 func findRomFiles(dir string) []string {
 	var files []string
 	entries, err := os.ReadDir(dir)
@@ -997,6 +1102,9 @@ func main() {
 		g.state = StatePlaying
 		g.curTitle = cleanTitle(flag.Arg(0))
 	} else {
+		cfg := loadConfig()
+		*romsDir = cfg.RomsDir
+		g.roms = nil
 		g.romFiles = findRomFiles(*romsDir)
 		g.loadChan = make(chan RomItem, 50)
 		g.loadDone = make(chan bool)

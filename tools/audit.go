@@ -2,12 +2,16 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"image/draw"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"alexkidd/pkg/machine"
+	"alexkidd/pkg/vdp"
 )
 
 type AuditResult struct {
@@ -74,8 +78,22 @@ func auditRom(path string) AuditResult {
 	m := machine.New(data)
 	bestScore := 0
 	maxCols := 0
+	var bestFrame []byte
 
-	for f := 0; f < 360; f++ {
+	maxF := 360
+	nameUpper := strings.ToUpper(path)
+	if strings.Contains(nameUpper, "(E)") || strings.Contains(nameUpper, "(UE)") || strings.Contains(nameUpper, "EUROPE") {
+		m.LinesPerFrame = 313
+	}
+	for f := 0; f < maxF; f++ {
+		if f == 359 && maxCols < 4 {
+			maxF = 650 // Margen extra a intros lentas
+			// Si es europeo y no arranca a 60Hz, conmutar a 50Hz (PAL 313 líneas)
+			nameUpper := strings.ToUpper(path)
+			if strings.Contains(nameUpper, "(E)") || strings.Contains(nameUpper, "(UE)") || strings.Contains(nameUpper, "EUROPE") {
+				m.LinesPerFrame = 313
+			}
+		}
 		// Pulsar botones 1 y 2 para saltar intros
 		if f%30 >= 10 && f%30 <= 20 {
 			m.CPU.Pad1 = 0xCF
@@ -90,6 +108,10 @@ func auditRom(path string) AuditResult {
 		}
 		if score > bestScore {
 			bestScore = score
+			if bestFrame == nil {
+				bestFrame = make([]byte, len(m.VDP.Frame))
+			}
+			copy(bestFrame, m.VDP.Frame[:])
 		}
 		// Latch si la CRAM se activa en cualquier fotograma
 		for _, b := range m.VDP.CRAM {
@@ -111,7 +133,6 @@ func auditRom(path string) AuditResult {
 			break
 		}
 	}
-	// Si en algun frame genero mas de 3 colores y puntuacion positiva, la paleta estuvo activa
 	for _, b := range m.VDP.CRAM {
 		if b != 0 {
 			res.CRAMActive = true
@@ -130,6 +151,42 @@ func auditRom(path string) AuditResult {
 		res.Status = "NEGRO"
 	}
 
+	// Regeneración automática de carátulas (.thumbnails/<baseName>.png) si no existe o estaba negra
+	if bestScore > 0 && len(bestFrame) > 0 {
+		thumbDir := ".thumbnails"
+		_ = os.MkdirAll(thumbDir, 0755)
+		baseName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		thumbPath := filepath.Join(thumbDir, baseName+".png")
+
+		shouldSave := false
+		if f, err := os.Open(thumbPath); err != nil {
+			shouldSave = true // No existía
+		} else {
+			img, err := png.Decode(f)
+			f.Close()
+			if err != nil {
+				shouldSave = true
+			} else {
+				b := img.Bounds()
+				rgba := image.NewRGBA(b)
+				draw.Draw(rgba, b, img, image.Point{}, draw.Src)
+				_, score := evalScore(rgba.Pix)
+				if score <= 0 {
+					shouldSave = true // La carátula existente estaba negra
+				}
+			}
+		}
+
+		if shouldSave {
+			rgba := image.NewRGBA(image.Rect(0, 0, vdp.ScreenW, vdp.ScreenH))
+			copy(rgba.Pix, bestFrame)
+			if outF, err := os.Create(thumbPath); err == nil {
+				_ = png.Encode(outF, rgba)
+				outF.Close()
+			}
+		}
+	}
+
 	return res
 }
 
@@ -141,11 +198,17 @@ func main() {
 		return
 	}
 
+	filter := ""
+	if len(os.Args) > 1 {
+		filter = strings.ToLower(os.Args[1])
+	}
 	var roms []string
 	for _, e := range entries {
 		ext := strings.ToLower(filepath.Ext(e.Name()))
 		if !e.IsDir() && (ext == ".sms" || ext == ".bin") {
-			roms = append(roms, filepath.Join(romsDir, e.Name()))
+			if filter == "" || strings.Contains(strings.ToLower(e.Name()), filter) {
+				roms = append(roms, filepath.Join(romsDir, e.Name()))
+			}
 		}
 	}
 
