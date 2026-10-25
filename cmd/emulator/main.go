@@ -1072,8 +1072,6 @@ func findRomFiles(dir string) []string {
 }
 
 
-//go:embed default.sms
-var defaultROM []byte
 
 func main() {
 	scale := flag.Float64("scale", 3, "factor de escala de la ventana")

@@ -1,7 +1,6 @@
 package mobile
 
 import (
-	_ "embed"
 	"image"
 	"image/color"
 	"math"
@@ -16,9 +15,6 @@ import (
 	"alexkidd/pkg/machine"
 	"alexkidd/pkg/vdp"
 )
-
-//go:embed default.sms
-var defaultROM []byte
 
 const (
 	sampleRate      = 48000
@@ -68,14 +64,15 @@ type mobileGame struct {
 	img        *ebiten.Image
 	audioBuf   *audioBuffer
 	monoBuf    []byte
-	samplesBuf []int16
 	stereoBuf  []byte
 	touchIDs   []ebiten.TouchID
 	drawOp     ebiten.DrawImageOptions
 	pauseHold  bool
 }
 
-func newmobileGame() *mobileGame {
+var globalGame *mobileGame
+
+func newMobileGame() *mobileGame {
 	aBuf := newAudioBuffer()
 	audioCtx := audio.NewContext(sampleRate)
 	player, err := audioCtx.NewPlayer(aBuf)
@@ -84,25 +81,33 @@ func newmobileGame() *mobileGame {
 		player.Play()
 	}
 
-	m := machine.New(defaultROM)
-	m.CPU.PSG.SetSampleRate(sampleRate)
-
-	return &mobileGame{
-		m:        m,
+	// Por defecto inicializa sin ROM (esperando carga externa)
+	g := &mobileGame{
 		img:      ebiten.NewImage(vdp.ScreenW, vdp.ScreenH),
 		audioBuf: aBuf,
 	}
+	globalGame = g
+	return g
+}
+
+// LoadROM permite cargar una ROM desde la capa Java de Android
+func LoadROM(data []byte) {
+	if globalGame == nil {
+		return
+	}
+	m := machine.New(data)
+	m.CPU.PSG.SetSampleRate(sampleRate)
+	globalGame.m = m
 }
 
 func (g *mobileGame) Update() error {
-	sw, sh := float64(g.img.Bounds().Dx()), float64(g.img.Bounds().Dy())
-	_ = sw
-	_ = sh
+	if g.m == nil {
+		return nil
+	}
 
 	pad := byte(0xFF)
 	pausePressed := false
 
-	// --- Lectura Táctil ---
 	g.touchIDs = ebiten.AppendTouchIDs(g.touchIDs[:0])
 	ww, wh := ebiten.WindowSize()
 	if ww == 0 || wh == 0 {
@@ -129,70 +134,31 @@ func (g *mobileGame) Update() error {
 		x, y := ebiten.TouchPosition(id)
 		fx, fy := float64(x), float64(y)
 
-		// D-Pad
 		dx := fx - dpadCX
 		dy := fy - dpadCY
 		dist := math.Hypot(dx, dy)
 		if dist < dpadR*1.5 && dist > 15 {
 			if dy < -dpadR*0.25 {
-				pad &^= 0x01 // Arriba
+				pad &^= 0x01
 			}
 			if dy > dpadR*0.25 {
-				pad &^= 0x02 // Abajo
+				pad &^= 0x02
 			}
 			if dx < -dpadR*0.25 {
-				pad &^= 0x04 // Izquierda
+				pad &^= 0x04
 			}
 			if dx > dpadR*0.25 {
-				pad &^= 0x08 // Derecha
+				pad &^= 0x08
 			}
 		}
 
-		// Botón 1
 		if math.Hypot(fx-b1CX, fy-b1CY) < btnR*1.3 {
 			pad &^= 0x10
 		}
-		// Botón 2
 		if math.Hypot(fx-b2CX, fy-b2CY) < btnR*1.3 {
 			pad &^= 0x20
 		}
-
-		// Botón PAUSE
 		if fx >= pauseX && fx <= pauseX+pauseW && fy >= pauseY && fy <= pauseY+pauseH {
-			pausePressed = true
-		}
-	}
-
-	// --- Mandos Físicos (Bluetooth / USB OTG) ---
-	var ids []ebiten.GamepadID
-	ids = ebiten.AppendGamepadIDs(ids)
-	if len(ids) > 0 {
-		gid := ids[0]
-		if ebiten.IsStandardGamepadButtonPressed(gid, ebiten.StandardGamepadButtonLeftTop) ||
-			ebiten.StandardGamepadAxisValue(gid, ebiten.StandardGamepadAxisLeftStickVertical) < -0.4 {
-			pad &^= 0x01
-		}
-		if ebiten.IsStandardGamepadButtonPressed(gid, ebiten.StandardGamepadButtonLeftBottom) ||
-			ebiten.StandardGamepadAxisValue(gid, ebiten.StandardGamepadAxisLeftStickVertical) > 0.4 {
-			pad &^= 0x02
-		}
-		if ebiten.IsStandardGamepadButtonPressed(gid, ebiten.StandardGamepadButtonLeftLeft) ||
-			ebiten.StandardGamepadAxisValue(gid, ebiten.StandardGamepadAxisLeftStickHorizontal) < -0.4 {
-			pad &^= 0x04
-		}
-		if ebiten.IsStandardGamepadButtonPressed(gid, ebiten.StandardGamepadButtonLeftRight) ||
-			ebiten.StandardGamepadAxisValue(gid, ebiten.StandardGamepadAxisLeftStickHorizontal) > 0.4 {
-			pad &^= 0x08
-		}
-		if ebiten.IsStandardGamepadButtonPressed(gid, ebiten.StandardGamepadButtonRightBottom) ||
-			ebiten.IsStandardGamepadButtonPressed(gid, ebiten.StandardGamepadButtonRightLeft) {
-			pad &^= 0x10
-		}
-		if ebiten.IsStandardGamepadButtonPressed(gid, ebiten.StandardGamepadButtonRightRight) ||
-			ebiten.IsStandardGamepadButtonPressed(gid, ebiten.StandardGamepadButtonRightTop) {
-			pad &^= 0x20
-		}
-		if ebiten.IsStandardGamepadButtonPressed(gid, ebiten.StandardGamepadButtonCenterRight) {
 			pausePressed = true
 		}
 	}
@@ -207,7 +173,6 @@ func (g *mobileGame) Update() error {
 	g.m.CPU.Pad1 = pad
 	g.m.RunFrame()
 
-	// Audio
 	monoBytes := samplesPerFrame * 2
 	if len(g.monoBuf) < monoBytes {
 		g.monoBuf = make([]byte, monoBytes)
@@ -232,14 +197,17 @@ func (g *mobileGame) Update() error {
 }
 
 func (g *mobileGame) Draw(screen *ebiten.Image) {
+	sw, sh := float64(screen.Bounds().Dx()), float64(screen.Bounds().Dy())
+
 	if g.m == nil || g.m.VDP == nil {
+		screen.Fill(color.RGBA{10, 15, 24, 255})
+		msg := "GOSMS: Selecciona una ROM para jugar"
+		ebitenutil.DebugPrintAt(screen, msg, int(sw)/2-len(msg)*3, int(sh)/2)
 		return
 	}
 
 	g.img.WritePixels(g.m.VDP.Frame[:])
-
-	sw, sh := float64(screen.Bounds().Dx()), float64(screen.Bounds().Dy())
-	srcW, srcH := float64(vdp.ScreenW-8), float64(vdp.ScreenH) // Recorte de overscan 8px
+	srcW, srcH := float64(vdp.ScreenW-8), float64(vdp.ScreenH)
 	subImg := g.img.SubImage(image.Rect(8, 0, vdp.ScreenW, vdp.ScreenH)).(*ebiten.Image)
 
 	scale := math.Min(sw/srcW, sh/srcH)
@@ -252,7 +220,7 @@ func (g *mobileGame) Draw(screen *ebiten.Image) {
 	g.drawOp.Filter = ebiten.FilterNearest
 	screen.DrawImage(subImg, &g.drawOp)
 
-	// --- Renderizar Controles Virtuales Superpuestos ---
+	// Controles táctiles
 	ctrlAlpha := uint8(110)
 	accentAlpha := uint8(160)
 
@@ -260,19 +228,15 @@ func (g *mobileGame) Draw(screen *ebiten.Image) {
 	dpadCY := float32(sh * 0.72)
 	dpadR := float32(sh * 0.22)
 
-	// Base D-Pad
 	vector.DrawFilledCircle(screen, dpadCX, dpadCY, dpadR, color.RGBA{15, 20, 30, ctrlAlpha}, true)
 	vector.StrokeCircle(screen, dpadCX, dpadCY, dpadR, 2, color.RGBA{0, 140, 255, accentAlpha}, true)
-	// Centro D-Pad
 	vector.DrawFilledCircle(screen, dpadCX, dpadCY, dpadR*0.35, color.RGBA{30, 40, 60, ctrlAlpha}, true)
 
-	// Flechas D-Pad
 	ebitenutil.DebugPrintAt(screen, "^", int(dpadCX)-3, int(dpadCY-dpadR*0.75))
 	ebitenutil.DebugPrintAt(screen, "v", int(dpadCX)-3, int(dpadCY+dpadR*0.6))
 	ebitenutil.DebugPrintAt(screen, "<", int(dpadCX-dpadR*0.75), int(dpadCY)-6)
 	ebitenutil.DebugPrintAt(screen, ">", int(dpadCX+dpadR*0.6), int(dpadCY)-6)
 
-	// Botones 1 y 2
 	b1CX := float32(sw - sh*0.30)
 	b1CY := float32(sh * 0.76)
 	b2CX := float32(sw - sh*0.14)
@@ -287,7 +251,6 @@ func (g *mobileGame) Draw(screen *ebiten.Image) {
 	vector.StrokeCircle(screen, b2CX, b2CY, btnR, 2.5, color.RGBA{255, 60, 60, accentAlpha}, true)
 	ebitenutil.DebugPrintAt(screen, "2", int(b2CX)-3, int(b2CY)-6)
 
-	// Botón Pause
 	pauseX := float32(sw*0.5 - 50)
 	pauseY := float32(10)
 	pauseW := float32(100)
@@ -302,9 +265,8 @@ func (g *mobileGame) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func init() {
-	game := newmobileGame()
+	game := newMobileGame()
 	mobile.SetGame(game)
 }
 
-// Dummy exportado para asegurar el enlace por gomobile / gobind
 func Dummy() {}

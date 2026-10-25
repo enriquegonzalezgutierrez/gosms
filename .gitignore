@@ -36,5 +36,3 @@ bin/
 dist/
 
 # Excepciones para ROMs embebidas por defecto
-!cmd/emulator/default.sms
-!mobile/default.sms
