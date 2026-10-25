@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"hash/fnv"
 	"image"
+	_ "image/png"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
 type TileManifest struct {
@@ -65,10 +65,17 @@ func InitHD(romPath string) {
 		return
 	}
 
-	img, _, err := ebitenutil.NewImageFromFile(sheetPath)
+	f, err := os.Open(sheetPath)
 	if err != nil {
 		return
 	}
+	defer f.Close()
+
+	decodedImg, _, err := image.Decode(f)
+	if err != nil {
+		return
+	}
+	img := ebiten.NewImageFromImage(decodedImg)
 
 	HD.Sheet = img
 	HD.TileMap = make(map[string]*ebiten.Image)

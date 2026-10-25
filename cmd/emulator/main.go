@@ -4,6 +4,8 @@
 package main
 
 import (
+	_ "embed"
+
 	"flag"
 	"fmt"
 	"image"
@@ -1068,6 +1070,10 @@ func findRomFiles(dir string) []string {
 	}
 	return files
 }
+
+
+//go:embed default.sms
+var defaultROM []byte
 
 func main() {
 	scale := flag.Float64("scale", 3, "factor de escala de la ventana")

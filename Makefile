@@ -14,7 +14,7 @@ WHITE   := \033[1;37m
 RESET   := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help build run hd clean dump unpack pack release audit
+.PHONY: help build run hd clean dump unpack pack release audit android-docker
 
 help:
 	@printf "\n$(BLUE)  ╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
@@ -25,7 +25,7 @@ help:
 	@printf "  $(GREEN)make hd$(RESET)         Pasa el spritesheet original por IA a 4K (waifu2x)\n"
 	@printf "  $(GREEN)make unpack$(RESET)     Separa el spritesheet en tiles 8x8 individuales para IA\n"
 	@printf "  $(GREEN)make pack$(RESET)       Ensambla los tiles 32x32 procesados en un nuevo spritesheet 4K\n"
-	@printf "  $(GREEN)make release$(RESET)    Compila para Linux/Windows y genera los .zip portables\n"
+	@printf "  $(GREEN)make release$(RESET)    Compila para Linux/Windows/Android y genera los zips\n"
 	@printf "  $(GREEN)make audit$(RESET)      Ejecuta auditoría de compatibilidad de todas las ROMs\n"
 	@printf "  $(GREEN)make clean$(RESET)      Limpia los binarios compilados\n\n"
 
@@ -76,25 +76,36 @@ audit:
 
 release:
 	@mkdir -p bin dist/gosms-linux dist/gosms-windows
-	@printf "$(BLUE)==> Compilando para Linux (Ubuntu)...\033[0m\n"
+	@printf "$(BLUE)==> Compilando para Linux (Ubuntu)...$(RESET)\n"
 	@GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/gosms-linux ./$(CMD_DIR)/emulator
-	@printf "$(BLUE)==> Compilando para Windows (Win64 sin consola)...\033[0m\n"
+	@printf "$(BLUE)==> Compilando para Windows (Win64 sin consola)...$(RESET)\n"
 	@GOOS=windows GOARCH=amd64 go build -ldflags="-H=windowsgui -s -w" -o bin/gosms-win64.exe ./$(CMD_DIR)/emulator
-	@printf "$(BLUE)==> Preparando paquete portable para Linux...\033[0m\n"
+	@printf "$(BLUE)==> Preparando paquete portable para Linux...$(RESET)\n"
 	@cp bin/gosms-linux dist/gosms-linux/gosms
 	@if [ -d "assets" ]; then cp -r assets dist/gosms-linux/; fi
 	@mkdir -p dist/gosms-linux/roms
 	@echo "Coloca tus ROMs .sms o .bin aquí" > dist/gosms-linux/roms/leer_roms.txt
 	@cd dist && rm -f gosms-linux-release.zip && zip -r gosms-linux-release.zip gosms-linux > /dev/null
-	@printf "$(BLUE)==> Preparando paquete portable para Windows...\033[0m\n"
+	@printf "$(BLUE)==> Preparando paquete portable para Windows...$(RESET)\n"
 	@cp bin/gosms-win64.exe dist/gosms-windows/gosms.exe
 	@if [ -d "assets" ]; then cp -r assets dist/gosms-windows/; fi
 	@mkdir -p dist/gosms-windows/roms
 	@echo "Coloca tus ROMs .sms o .bin aquí" > dist/gosms-windows/roms/leer_roms.txt
 	@cd dist && rm -f gosms-windows-release.zip && zip -r gosms-windows-release.zip gosms-windows > /dev/null
-	@printf "$(GREEN)✨ ¡BUILDS DE RELEASE COMPLETADOS!\033[0m\n"
-	@printf "  🐧 Linux ZIP:   $(CYAN)dist/gosms-linux-release.zip\033[0m\n"
-	@printf "  🪟 Windows ZIP: $(CYAN)dist/gosms-windows-release.zip\033[0m\n"
+	@$(MAKE) android-docker
+	@printf "$(GREEN)✨ ¡BUILDS DE RELEASE COMPLETADOS!$(RESET)\n"
+	@printf "  🐧 Linux ZIP:   $(CYAN)dist/gosms-linux-release.zip$(RESET)\n"
+	@printf "  🪟 Windows ZIP: $(CYAN)dist/gosms-windows-release.zip$(RESET)\n"
+	@printf "  📱 Android APK: $(CYAN)dist/gosms-android/gosms.apk$(RESET)\n"
+
+android-docker:
+	@printf "$(BLUE)==> Verificando imagen Docker para Android...$(RESET)\n"
+	@docker build -t gosms-android-builder -f Dockerfile.android . > /dev/null
+	@mkdir -p dist/gosms-android
+	@printf "$(BLUE)==> Compilando biblioteca nativa AAR (ARM, ARM64, x86)...$(RESET)\n"
+	@docker run --rm -e GOFLAGS="-buildvcs=false" -v $$(pwd):/app -w /app gosms-android-builder ebitenmobile bind -target android -javapkg com.egonzalez.gosms -o dist/gosms-android/gosms.aar ./mobile
+	@printf "$(BLUE)==> Ensamblando, optimizando y firmando gosms.apk...$(RESET)\n"
+	@docker run --rm -v $$(pwd):/app -w /app gosms-android-builder ./scripts/build_apk.sh
 
 clean:
 	@rm -rf $(BIN_DIR) dist

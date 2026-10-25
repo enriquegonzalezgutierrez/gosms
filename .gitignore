@@ -31,3 +31,10 @@ assets/
 emulator
 bin/
 *.sav
+
+# Carpetas de distribución generadas
+dist/
+
+# Excepciones para ROMs embebidas por defecto
+!cmd/emulator/default.sms
+!mobile/default.sms

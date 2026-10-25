@@ -1,0 +1,33 @@
+FROM golang:1.22-bookworm
+
+ENV GOTOOLCHAIN=auto
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# Instalar dependencias necesarias (Java, zip, unzip, etc.)
+RUN apt-get update && apt-get install -y default-jdk zip unzip wget git make
+
+# Configurar variables de entorno para Android SDK
+ENV ANDROID_HOME=/opt/android-sdk
+ENV PATH=${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools
+
+# Descargar e instalar Android Command Line Tools
+RUN mkdir -p ${ANDROID_HOME}/cmdline-tools && \
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline-tools.zip && \
+    unzip -q cmdline-tools.zip -d ${ANDROID_HOME}/cmdline-tools && \
+    mv ${ANDROID_HOME}/cmdline-tools/cmdline-tools ${ANDROID_HOME}/cmdline-tools/latest && \
+    rm cmdline-tools.zip
+
+# Aceptar licencias e instalar SDK y NDK
+RUN yes | sdkmanager --licenses > /dev/null && \
+    sdkmanager "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653" > /dev/null
+
+ENV ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/25.2.9519653
+
+# Instalar herramientas móviles actualizadas con soporte de toolchain automático
+RUN go install golang.org/x/mobile/cmd/gomobile@latest && \
+    go install golang.org/x/mobile/cmd/gobind@latest && \
+    gomobile init && \
+    go install github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@latest
+
+ENV PATH=${PATH}:/go/bin
