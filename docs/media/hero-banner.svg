@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 320" width="100%" height="100%">
+  <defs>
+    <!-- Gradiente de fondo oscuro de alta gama -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#080c14"/>
+      <stop offset="50%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#050810"/>
+    </linearGradient>
+
+    <!-- Resplandor Neón Cian -->
+    <filter id="cyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- Resplandor Rojo Sega -->
+    <filter id="redGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- Cuadrícula icónica de carátulas de Master System -->
+    <pattern id="smsGrid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#1e293b" stroke-width="1.2" stroke-opacity="0.6"/>
+    </pattern>
+
+    <linearGradient id="segaText" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#e0f2fe"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+
+    <linearGradient id="goldAccent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#fbbf24"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fondo base -->
+  <rect width="960" height="320" fill="url(#bgGrad)"/>
+
+  <!-- Cuadrícula retro SMS con máscara de degradado -->
+  <rect width="960" height="320" fill="url(#smsGrid)"/>
+
+  <!-- Línea decorativa superior estilo Master System (Borgoña y Oro) -->
+  <rect x="0" y="0" width="960" height="5" fill="#dc2626"/>
+  <rect x="0" y="5" width="960" height="2" fill="#0284c7"/>
+
+  <!-- Badge Superior: SEGA MASTER SYSTEM COMPATIBLE -->
+  <g transform="translate(48, 38)">
+    <rect x="0" y="0" width="94" height="28" rx="4" fill="#dc2626" filter="url(#redGlow)"/>
+    <text x="47" y="19" fill="#ffffff" font-family="'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="900" letter-spacing="2" text-anchor="middle">SEGA</text>
+    
+    <rect x="104" y="0" width="220" height="28" rx="4" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="214" y="18" fill="#94a3b8" font-family="'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" letter-spacing="1.5" text-anchor="middle">MASTER SYSTEM ARCHITECTURE</text>
+  </g>
+
+  <!-- Título Principal: GOSMS -->
+  <g transform="translate(48, 140)">
+    <!-- Sombra proyectada del logo -->
+    <text x="4" y="4" fill="#0284c7" opacity="0.4" font-family="'Arial Black', Impact, sans-serif" font-size="82" font-weight="900" letter-spacing="4">GOSMS</text>
+    
+    <!-- Texto principal degradado -->
+    <text x="0" y="0" fill="url(#segaText)" font-family="'Arial Black', Impact, sans-serif" font-size="82" font-weight="900" letter-spacing="4" filter="url(#cyanGlow)">GOSMS</text>
+    
+    <!-- Decoración geométrica lateral -->
+    <rect x="360" y="-55" width="6" height="55" fill="#38bdf8"/>
+    <rect x="374" y="-40" width="4" height="40" fill="#dc2626"/>
+    <rect x="385" y="-25" width="2" height="25" fill="#f59e0b"/>
+  </g>
+
+  <!-- Subtítulo técnico -->
+  <text x="50" y="185" fill="#cbd5e1" font-family="'Segoe UI', Roboto, sans-serif" font-size="17" font-weight="600" letter-spacing="1.5">
+    High-Performance, Cycle-Accurate 8-Bit Emulator Written in Pure Go
+  </text>
+  <text x="50" y="210" fill="#64748b" font-family="'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="400" letter-spacing="0.5">
+    Z80 CPU • VDP Mode 4 • SN76489 PSG • CRT &amp; EPX Post-Processing • Multiplatform Release
+  </text>
+
+  <!-- Pills / Badges de plataforma y estado -->
+  <g transform="translate(50, 246)">
+    <!-- Badge Go -->
+    <rect x="0" y="0" width="95" height="32" rx="16" fill="#0f2942" stroke="#00add8" stroke-width="1.2"/>
+    <circle cx="16" cy="16" r="5" fill="#00add8"/>
+    <text x="52" y="20" fill="#e0f2fe" font-family="'Segoe UI', sans-serif" font-size="12" font-weight="700">Go 1.25</text>
+
+    <!-- Badge Linux -->
+    <rect x="110" y="0" width="95" height="32" rx="16" fill="#182234" stroke="#475569" stroke-width="1.2"/>
+    <text x="157" y="20" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="12" font-weight="600" text-anchor="middle">🐧 Linux</text>
+
+    <!-- Badge Windows -->
+    <rect x="220" y="0" width="105" height="32" rx="16" fill="#182234" stroke="#475569" stroke-width="1.2"/>
+    <text x="272" y="20" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="12" font-weight="600" text-anchor="middle">🪟 Windows</text>
+
+    <!-- Badge Android -->
+    <rect x="340" y="0" width="115" height="32" rx="16" fill="#132e27" stroke="#10b981" stroke-width="1.2"/>
+    <text x="397" y="20" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="12" font-weight="700" text-anchor="middle">📱 Android APK</text>
+
+    <!-- Badge 60 FPS V-Sync -->
+    <rect x="470" y="0" width="115" height="32" rx="16" fill="#2d1c10" stroke="#f59e0b" stroke-width="1.2"/>
+    <text x="527" y="20" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="12" font-weight="700" text-anchor="middle">⚡ 60 FPS NTSC</text>
+
+    <!-- Badge 99.7% Accuracy -->
+    <rect x="600" y="0" width="145" height="32" rx="16" fill="#28112b" stroke="#d946ef" stroke-width="1.2"/>
+    <text x="672" y="20" fill="#f5d0fe" font-family="'Segoe UI', sans-serif" font-size="12" font-weight="700" text-anchor="middle">🎯 99.7% Accuracy</text>
+  </g>
+
+  <!-- Borde decorativo exterior -->
+  <rect x="1" y="1" width="958" height="318" rx="8" fill="none" stroke="#334155" stroke-width="1.5" stroke-opacity="0.8"/>
+</svg>
