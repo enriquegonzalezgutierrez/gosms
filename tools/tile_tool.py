@@ -29,6 +29,13 @@ def tile_filename(item):
     return f"{prefix}_{item['index']:04d}.png"
 
 
+def is_remasterable_object(obj):
+    # ROM tile atlases are technical collections of 8x8 patterns, not coherent
+    # objects for image-to-image remastering. Keep them in the manifest so pack
+    # can map their tiles, but do not present them as AI object inputs.
+    return not obj.get("kind", "").endswith("_tileset")
+
+
 def make_object_contact_sheet(objects, source_object_dir, out_dir):
     if not objects:
         return
@@ -120,7 +127,14 @@ def unpack(rom_name):
         if tile is not None:
             tile_images[item["index"]] = tile
 
-    for obj in document["objects"]:
+    remasterable_objects = [obj for obj in document["objects"] if is_remasterable_object(obj)]
+    # input/objects is generated from original/manifest.json. Clear old previews
+    # first so stale tile-atlas images do not survive a later unpack.
+    for name in os.listdir(source_object_dir):
+        if name.lower().endswith(".png"):
+            os.remove(os.path.join(source_object_dir, name))
+
+    for obj in remasterable_objects:
         placements = obj.get("tiles", [])
         if not placements:
             continue
@@ -134,7 +148,7 @@ def unpack(rom_name):
         composite = composite.resize((width * SCALE, height * SCALE), Image.Resampling.NEAREST)
         composite.save(os.path.join(source_object_dir, f"{obj['id']}.png"))
 
-    make_object_contact_sheet(document["objects"], source_object_dir, out_dir)
+    make_object_contact_sheet(remasterable_objects, source_object_dir, out_dir)
     make_scene_tile_maps(document.get("scenes", []), tile_images, out_dir)
 
     with open(os.path.join(out_dir, "objects.csv"), "w", newline="", encoding="utf-8") as output:
@@ -142,22 +156,25 @@ def unpack(rom_name):
         writer.writerow(("id", "label", "kind", "frames_seen", "tile_indices", "source_image", "ai_output"))
         for obj in document["objects"]:
             indices = sorted({tile["index"] for tile in obj.get("tiles", [])})
+            is_object = is_remasterable_object(obj)
             writer.writerow((obj["id"], obj.get("label", "unlabeled"), obj.get("kind", ""),
                              obj.get("frames_seen", 0), ";".join(map(str, indices)),
-                             f"input/objects/{obj['id']}.png", f"objects/{obj['id']}.png"))
+                             f"input/objects/{obj['id']}.png" if is_object else "",
+                             f"objects/{obj['id']}.png" if is_object else ""))
 
     if spritesheet is not None:
         spritesheet.close()
 
     readme = os.path.join(out_dir, "README.txt")
     with open(readme, "w", encoding="utf-8") as output:
-        output.write("Usa input/objects/ como referencia y guarda los remasters en objects/ con el mismo nombre y dimensiones.\n")
+        output.write("Usa input/objects/ para remasterizar objetos coherentes y guarda los resultados en objects/ con el mismo nombre y dimensiones.\n")
         output.write("Conserva la cuadrícula de 32 px por tile; cada composite debe seguir a escala 4x.\n")
         output.write("pack aplica cada tile de objeto al índice indicado en original/manifest.json.\n")
+        output.write("Los sprite_tileset y background_tileset son atlas técnicos de patrones 8x8: no son objetos y no se exportan a input/objects. Sus entradas se conservan en el manifest para mapear sus tiles.\n")
         output.write("Los tiles compartidos por varios objetos generan conflictos; resuélvelos creando un override en tiles/bg_NNNN.png o tiles/spr_NNNN.png.\n")
         output.write("Edita el campo label de objects[] en original/manifest.json para identificar cada objeto.\n")
 
-    print(f"✅ {len(document['tiles'])} tiles en el manifest; {len(document['objects'])} composites fuente en {source_object_dir}/")
+    print(f"✅ {len(document['tiles'])} tiles en el manifest; {len(remasterable_objects)} composites fuente en {source_object_dir}/ (atlas técnicos omitidos)")
     print("👉 Remasteriza los PNG de input/objects/ y guarda los resultados en objects/ sin cambiar el tamaño.")
 
 
