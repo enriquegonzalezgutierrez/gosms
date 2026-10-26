@@ -75,9 +75,9 @@ En la herramienta de imagen:
 ### Prompt para copiar
 
 ```text
-Edit the attached image. Identify its existing character, object, or game-art content from the image itself. Remaster it as polished, high-detail 2D artwork for a modern 2026 game while keeping the original recognizable design, silhouette, pose, direction, proportions, and placement.
+Edit only the single attached image. Identify its existing character or object from the image itself. This is a faithful remaster of the original, not a redesign. Keep the exact same character/object, clothing, costume details, accessories, colors, patterns, pose, facial expression, direction, proportions, silhouette, and placement. Keep every limb and component in exactly the same position. Do not invent details that are not visible in the reference.
 
-This image is assembled from game tiles. Keep its aspect ratio and composition. Improve the existing artwork with clean contours, rich but coherent colors, detailed materials, and deliberate lighting. Do not crop, stretch, rotate, move, add, or remove any parts. Do not create a new scene or change the object's pose.
+Improve only the rendering quality so it looks like a polished 2026 game asset: cleaner contours, clearer shading, richer material detail, and refined lighting. Keep the original art direction and color palette. This image is assembled from game tiles, so keep the same aspect ratio and composition. Do not crop, stretch, rotate, move, add, remove, merge, or split any parts. Do not create a new scene or change the pose.
 
 Preserve the transparent background and all empty areas. Do not add text, numbers, labels, borders, shadows outside the original silhouette, or extra objects. Return one high-resolution image, up to 4K on its longest side if supported, with the same aspect ratio as the input. Do not put multiple versions in one image. Prefer transparent PNG; JPEG or WebP is acceptable if PNG is unavailable.
 ```
