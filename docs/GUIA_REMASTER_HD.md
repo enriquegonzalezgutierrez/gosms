@@ -68,14 +68,14 @@ En la herramienta de imagen:
 
 1. Elige la función que permite editar o transformar una imagen ya existente (*image-to-image*).
 2. Sube **un** PNG desde `input/objects/`.
-3. Copia el prompt de abajo y cambia el texto entre corchetes por el nombre y aspecto del objeto. Por ejemplo: `Alex Kidd, facing right` o `a small palm tree`.
+3. Copia y pega el prompt de abajo sin modificarlo. La IA debe identificar el contenido a partir de la imagen que adjuntaste.
 4. Pide una sola imagen de salida. No pidas una hoja de personajes nueva ni varias propuestas dentro de un mismo PNG.
 5. Descarga el resultado como **PNG con transparencia**. No uses JPG: JPG no conserva las zonas transparentes.
 
 ### Prompt para copiar
 
 ```text
-Edit the attached image. It shows [DESCRIBE THE OBJECT, for example: Alex Kidd facing right]. Improve the appearance while keeping the same recognizable character/object, silhouette, pose, direction, proportions, and placement.
+Edit the attached image. Identify its existing character, object, or game-art content from the image itself. Improve its appearance while keeping the same recognizable content, silhouette, pose, direction, proportions, and placement.
 
 This is pixel art arranged on a strict grid. Keep the exact canvas width, height, and alignment. Each original game tile is 8x8 pixels and occupies a 32x32 pixel cell in this image (4x scale). Redraw only the existing artwork as clean, polished pixel art with crisp pixel clusters and deliberate shading. Do not blur, use photorealism, or add smooth anti-aliased edges.
 
