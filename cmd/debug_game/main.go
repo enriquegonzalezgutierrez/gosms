@@ -4,8 +4,17 @@ import (
 	"fmt"
 	"os"
 
-	"alexkidd/pkg/machine"
+	"gosms/pkg/machine"
 )
+
+func cramActive(m *machine.Machine) bool {
+	for _, b := range m.VDP.CRAM {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
 
 func main() {
 	data, _ := os.ReadFile("roms/Aladdin (E) [!].sms")
@@ -17,11 +26,9 @@ func main() {
 		m.CPU.RAMControl = 0 // FORZAR SRAM APAGADA
 	}
 
-	for _, b := range m.VDP.CRAM {
-		if b != 0 {
-			fmt.Printf("¡¡CRAM ACTIVA EN ALADDIN!!\n")
-			return
-		}
+	if cramActive(m) {
+		fmt.Printf("¡¡CRAM ACTIVA EN ALADDIN!!\n")
+		return
 	}
 	fmt.Println("Aladdin sigue en negro")
 }

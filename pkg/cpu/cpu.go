@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"alexkidd/pkg/psg"
-	"alexkidd/pkg/vdp"
+	"gosms/pkg/psg"
+	"gosms/pkg/vdp"
 )
 
 const (

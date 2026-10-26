@@ -1,9 +1,9 @@
 package machine
 
 import (
-	"alexkidd/pkg/cpu"
-	"alexkidd/pkg/psg"
-	"alexkidd/pkg/vdp"
+	"gosms/pkg/cpu"
+	"gosms/pkg/psg"
+	"gosms/pkg/vdp"
 	"os"
 )
 

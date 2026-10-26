@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"alexkidd/pkg/machine"
+	"gosms/pkg/machine"
 )
 
 func decodeColor(c byte) color.RGBA {
@@ -121,7 +121,7 @@ func main() {
 			pad = 0xFF // Mapa de la isla Green Hill
 		} else {
 			pad &= ^byte(0x08) // Correr derecha
-			if (f%120) < 20 {
+			if (f % 120) < 20 {
 				pad &= ^byte(0x10) // Saltar obstáculos
 			}
 		}

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"alexkidd/pkg/machine"
-	"alexkidd/pkg/vdp"
+	"gosms/pkg/machine"
+	"gosms/pkg/vdp"
 	"image/color"
 	"math"
 

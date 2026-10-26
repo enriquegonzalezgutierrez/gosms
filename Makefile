@@ -43,7 +43,7 @@ endif
 dump:
 ifdef ROM
 	@printf "$(BLUE)==> Extrayendo spritesheet...$(RESET)\n"
-	@go run tools/dump_assets.go "$(ROM)"
+	@go run ./cmd/dump_assets "$(ROM)"
 endif
 
 hd:
@@ -72,7 +72,7 @@ endif
 
 audit:
 	@printf "$(BLUE)==> Ejecutando auditoría general de ROMs...$(RESET)\n"
-	@go run tools/audit.go
+	@go run ./cmd/audit
 
 release:
 	@mkdir -p bin dist/gosms-linux dist/gosms-windows

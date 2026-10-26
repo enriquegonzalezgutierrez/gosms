@@ -12,9 +12,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
-	"alexkidd/pkg/machine"
-	"alexkidd/pkg/psg"
-	"alexkidd/pkg/vdp"
+	"gosms/pkg/machine"
+	"gosms/pkg/psg"
+	"gosms/pkg/vdp"
 )
 
 // Frecuencia de muestreo del audio.
@@ -117,7 +117,7 @@ func (g *game) Update() error {
 	// del juego avanza con la interrupción de frame).
 	g.frames++
 	if g.frames%30 == 0 {
-		ebiten.SetWindowTitle(fmt.Sprintf("Alex Kidd - Sega Master System   %.0f fps  %.1f TPS",
+		ebiten.SetWindowTitle(fmt.Sprintf("GoSMS - Sega Master System   %.0f fps  %.1f TPS",
 			ebiten.ActualFPS(), ebiten.ActualTPS()))
 	}
 	if g.stats && g.frames%60 == 0 {
@@ -184,7 +184,7 @@ func main() {
 		stats:      *stats,
 	}
 
-	ebiten.SetWindowTitle("Alex Kidd - Sega Master System")
+	ebiten.SetWindowTitle("GoSMS - Sega Master System")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	if *fullscreen {
 		ebiten.SetFullscreen(true)

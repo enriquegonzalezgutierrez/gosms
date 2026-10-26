@@ -8,9 +8,9 @@ import (
 	"image/png"
 	"os"
 
-	"alexkidd/pkg/cpu"
-	"alexkidd/pkg/machine"
-	"alexkidd/pkg/vdp"
+	"gosms/pkg/cpu"
+	"gosms/pkg/machine"
+	"gosms/pkg/vdp"
 )
 
 // writeWAV escribe PCM con signo de 16 bits little-endian como WAV.

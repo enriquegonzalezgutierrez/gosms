@@ -3,8 +3,8 @@ package cpu
 import (
 	"fmt"
 
-	"alexkidd/pkg/psg"
-	"alexkidd/pkg/vdp"
+	"gosms/pkg/psg"
+	"gosms/pkg/vdp"
 )
 
 const (
@@ -101,7 +101,7 @@ func (c *CPU) WriteByte(addr uint16, val byte) {
 		}
 		// Los registros del mapper son write-only, pero la RAM subyacente
 		// también recibe el valor: algunos juegos releen $FFFF para
-		// salvar/restaurar el banco (p. ej. Alex Kidd en su rutina de IRQ).
+		// salvar/restaurar el banco (p. ej. GoSMS en su rutina de IRQ).
 	}
 	c.RAM[(addr-0xC000)&0x1FFF] = val
 }

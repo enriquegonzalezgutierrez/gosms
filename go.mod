@@ -1,4 +1,4 @@
-module alexkidd
+module gosms
 
 go 1.25.0
 

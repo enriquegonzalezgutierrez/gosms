@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"alexkidd/pkg/machine"
-	"alexkidd/pkg/vdp"
+	"gosms/pkg/machine"
+	"gosms/pkg/vdp"
 )
 
 type AuditResult struct {
@@ -76,7 +76,7 @@ func auditRom(path string) AuditResult {
 	}()
 
 	m := machine.New(data)
-	
+
 	// Detección automática PAL (50Hz) para juegos europeos
 	nameUpper := strings.ToUpper(path)
 	if strings.Contains(nameUpper, "(E)") || strings.Contains(nameUpper, "(UE)") || strings.Contains(nameUpper, "EUROPE") {
@@ -197,7 +197,7 @@ func main() {
 	var roms []string
 	for _, e := range entries {
 		ext := strings.ToLower(filepath.Ext(e.Name()))
-	if !e.IsDir() && (ext == ".sms" || ext == ".bin") {
+		if !e.IsDir() && (ext == ".sms" || ext == ".bin") {
 			if filter == "" || strings.Contains(strings.ToLower(e.Name()), filter) {
 				roms = append(roms, filepath.Join(romsDir, e.Name()))
 			}

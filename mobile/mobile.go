@@ -9,11 +9,10 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/mobile"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
-	"alexkidd/pkg/machine"
-	"alexkidd/pkg/vdp"
+	"gosms/pkg/machine"
+	"gosms/pkg/vdp"
 )
 
 const (
@@ -60,14 +59,14 @@ func (a *audioBuffer) Read(p []byte) (int, error) {
 }
 
 type mobileGame struct {
-	m          *machine.Machine
-	img        *ebiten.Image
-	audioBuf   *audioBuffer
-	monoBuf    []byte
-	stereoBuf  []byte
-	touchIDs   []ebiten.TouchID
-	drawOp     ebiten.DrawImageOptions
-	pauseHold  bool
+	m         *machine.Machine
+	img       *ebiten.Image
+	audioBuf  *audioBuffer
+	monoBuf   []byte
+	stereoBuf []byte
+	touchIDs  []ebiten.TouchID
+	drawOp    ebiten.DrawImageOptions
+	pauseHold bool
 }
 
 var globalGame *mobileGame
@@ -262,11 +261,6 @@ func (g *mobileGame) Draw(screen *ebiten.Image) {
 
 func (g *mobileGame) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return outsideWidth, outsideHeight
-}
-
-func init() {
-	game := newMobileGame()
-	mobile.SetGame(game)
 }
 
 func Dummy() {}

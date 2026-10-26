@@ -24,8 +24,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
-	"alexkidd/pkg/machine"
-	"alexkidd/pkg/vdp"
+	"gosms/pkg/machine"
+	"gosms/pkg/vdp"
 )
 
 const (
