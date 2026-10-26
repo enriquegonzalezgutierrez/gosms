@@ -5,7 +5,7 @@ import os
 import shutil
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageOps
 
 
 SCALE = 4
@@ -27,6 +27,41 @@ def read_manifest(path):
 def tile_filename(item):
     prefix = "spr" if item.get("is_sprite", False) else "bg"
     return f"{prefix}_{item['index']:04d}.png"
+
+
+def remastered_object_path(ai_dir, object_id):
+    # Image generators may return a different format than requested. Prefer
+    # lossless formats if more than one result is present.
+    for extension in ("png", "webp", "jpg", "jpeg"):
+        path = os.path.join(ai_dir, "objects", f"{object_id}.{extension}")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def load_remastered_object(path, reference_path, expected_size):
+    with Image.open(path) as source:
+        generated = source.convert("RGBA")
+
+    if generated.size != expected_size:
+        # Fit without cropping or stretching, then place on the manifest-sized
+        # canvas. This accepts large AI outputs while preserving the tile grid.
+        fitted = ImageOps.contain(generated, expected_size, method=Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", expected_size, (0, 0, 0, 0))
+        position = ((expected_size[0] - fitted.width) // 2,
+                    (expected_size[1] - fitted.height) // 2)
+        canvas.alpha_composite(fitted, position)
+        generated = canvas
+
+    # JPEG has no alpha channel. Reuse the source object's alpha mask so its
+    # background stays transparent; intersect it with any alpha from the AI.
+    if reference_path and os.path.isfile(reference_path):
+        with Image.open(reference_path) as reference:
+            reference_alpha = reference.convert("RGBA").getchannel("A")
+        if reference_alpha.size != expected_size:
+            reference_alpha = reference_alpha.resize(expected_size, Image.Resampling.NEAREST)
+        generated.putalpha(ImageChops.multiply(generated.getchannel("A"), reference_alpha))
+    return generated
 
 
 def is_remasterable_object(obj):
@@ -167,8 +202,8 @@ def unpack(rom_name):
 
     readme = os.path.join(out_dir, "README.txt")
     with open(readme, "w", encoding="utf-8") as output:
-        output.write("Usa input/objects/ para remasterizar objetos coherentes y guarda los resultados en objects/ con el mismo nombre y dimensiones.\n")
-        output.write("Conserva la cuadrícula de 32 px por tile; cada composite debe seguir a escala 4x.\n")
+        output.write("Usa input/objects/ para remasterizar objetos coherentes y guarda los resultados en objects/ con el mismo ID; se aceptan PNG, JPEG y WebP a cualquier resolución.\n")
+        output.write("El empaquetador adapta el resultado, sin recortarlo ni estirarlo, a la cuadrícula original de 32 px por tile y recupera la transparencia del original.\n")
         output.write("pack aplica cada tile de objeto al índice indicado en original/manifest.json.\n")
         output.write("Los sprite_tileset y background_tileset son atlas técnicos de patrones 8x8: no son objetos y no se exportan a input/objects. Sus entradas se conservan en el manifest para mapear sus tiles.\n")
         output.write("Los tiles compartidos por varios objetos generan conflictos; resuélvelos creando un override en tiles/bg_NNNN.png o tiles/spr_NNNN.png.\n")
@@ -217,11 +252,21 @@ def pack(rom_name):
 
     object_tiles = {}
     for obj in document["objects"]:
-        path = os.path.join(ai_dir, "objects", f"{obj['id']}.png")
-        if not os.path.exists(path):
+        path = remastered_object_path(ai_dir, obj["id"])
+        if path is None:
             continue
+        placements = obj.get("tiles", [])
+        if not placements:
+            continue
+        logical_width = max(tile["x"] + 8 for tile in placements)
+        logical_height = max(tile["y"] + 8 for tile in placements)
+        expected_size = (logical_width * SCALE, logical_height * SCALE)
+        reference_path = os.path.join(ai_dir, "input", "objects", f"{obj['id']}.png")
         with Image.open(path) as source:
-            composite = source.convert("RGBA")
+            original_size = source.size
+        composite = load_remastered_object(path, reference_path, expected_size)
+        if original_size != expected_size:
+            print(f"🔎 Adaptando {os.path.basename(path)}: {original_size[0]}x{original_size[1]} → {expected_size[0]}x{expected_size[1]} (cuadrícula 4x)")
         for placement in obj.get("tiles", []):
             index = placement["index"]
             x, y = placement["x"] * SCALE, placement["y"] * SCALE

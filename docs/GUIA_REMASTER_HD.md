@@ -2,7 +2,7 @@
 
 Esta guía está escrita para quien no conoce los tiles ni el funcionamiento del emulador. Al terminar, tendrás una imagen modificada dentro del juego y podrás compararla con la original usando **F10**.
 
-> **Importante:** el proyecto llama “HD 4×” a las texturas que tienen cuatro veces más píxeles por lado que un gráfico original. No significa que el juego se convierta automáticamente en vídeo 4K (3840×2160).
+> **Importante:** puedes darle al empaquetador un resultado de IA grande, incluso de 4K, y de formato JPEG. En esta primera etapa, GoSMS lo adapta a la cuadrícula de textura 4× que usa actualmente. Esto permite importar una imagen grande sin que se descuadren sus piezas; todavía no convierte el juego ni sus texturas internas a resolución 4K.
 
 ## Antes de empezar
 
@@ -16,7 +16,7 @@ Necesitas:
    python3 -m pip install Pillow
    ```
 
-4. Una herramienta de **edición de imágenes con IA (image-to-image)**. Debe permitir subir una imagen existente y descargar el resultado como PNG. En la herramienta, utiliza la imagen original como referencia; no crees una imagen solo a partir de texto.
+4. Una herramienta de **edición de imágenes con IA (image-to-image)**. Debe permitir subir una imagen existente y descargar el resultado. En la herramienta, utiliza la imagen original como referencia; no crees una imagen solo a partir de texto. PNG con transparencia es lo preferible, pero el empaquetador también acepta JPEG y WebP.
 
 ## Paso 1: extraer los gráficos
 
@@ -70,29 +70,29 @@ En la herramienta de imagen:
 2. Sube **un** PNG desde `input/objects/`.
 3. Copia y pega el prompt de abajo sin modificarlo. La IA debe identificar el contenido a partir de la imagen que adjuntaste.
 4. Pide una sola imagen de salida. No pidas una hoja de personajes nueva ni varias propuestas dentro de un mismo PNG.
-5. Descarga el resultado como **PNG con transparencia**. No uses JPG: JPG no conserva las zonas transparentes.
+5. Descarga el resultado a la resolución más alta que permita la herramienta, hasta 4K si está disponible. El empaquetador acepta PNG, JPEG o WebP. PNG con transparencia es lo preferible; si la herramienta solo ofrece JPEG, el empaquetador recupera la transparencia del original.
 
 ### Prompt para copiar
 
 ```text
-Edit the attached image. Identify its existing character, object, or game-art content from the image itself. Improve its appearance while keeping the same recognizable content, silhouette, pose, direction, proportions, and placement.
+Edit the attached image. Identify its existing character, object, or game-art content from the image itself. Remaster it as polished, high-detail 2D artwork for a modern 2026 game while keeping the original recognizable design, silhouette, pose, direction, proportions, and placement.
 
-This is pixel art arranged on a strict grid. Keep the exact canvas width, height, and alignment. Each original game tile is 8x8 pixels and occupies a 32x32 pixel cell in this image (4x scale). Redraw only the existing artwork as clean, polished pixel art with crisp pixel clusters and deliberate shading. Do not blur, use photorealism, or add smooth anti-aliased edges.
+This image is assembled from game tiles. Keep its aspect ratio and composition. Improve the existing artwork with clean contours, rich but coherent colors, detailed materials, and deliberate lighting. Do not crop, stretch, rotate, move, add, or remove any parts. Do not create a new scene or change the object's pose.
 
-Preserve all transparent areas. Do not add a background. Do not add, remove, move, rotate, merge, or split any parts. Do not add text, numbers, labels, borders, or extra objects. Return exactly one transparent PNG with the same pixel dimensions as the input image.
+Preserve the transparent background and all empty areas. Do not add text, numbers, labels, borders, shadows outside the original silhouette, or extra objects. Return one high-resolution image, up to 4K on its longest side if supported, with the same aspect ratio as the input. Do not put multiple versions in one image. Prefer transparent PNG; JPEG or WebP is acceptable if PNG is unavailable.
 ```
 
 ### Comprobar el resultado antes de importarlo
 
-Abre el PNG descargado junto al original y comprueba que:
+Abre la imagen descargada junto al original y comprueba que:
 
 - el dibujo sigue siendo el mismo personaje u objeto;
 - no se ha cortado ninguna parte y no se ha añadido un fondo;
-- el lienzo tiene exactamente el mismo ancho y alto que el original;
-- las zonas transparentes siguen transparentes;
+- conserva aproximadamente la misma proporción de ancho y alto y no se ha recortado;
+- el contenido sigue en la misma posición y el fondo añadido no tapa el objeto;
 - la imagen no está borrosa ni contiene texto o elementos inventados.
 
-Si la IA devuelve otro tamaño, otra imagen compuesta o un fondo sólido, no la importes todavía. Vuelve a generarla indicando que respete el lienzo, o usa un editor de imágenes para colocar el dibujo en el lienzo original sin estirarlo ni mover sus piezas. Cada tile ocupa una celda de **32×32 píxeles** dentro de estos PNG; al cambiar la alineación, el empaquetador puede cortar el dibujo por lugares incorrectos.
+La IA puede cambiar el tamaño y eso está permitido. No permitas que recorte o cambie mucho la proporción. Al empaquetar, GoSMS ajusta la imagen completa al tamaño de referencia sin estirarla y después vuelve a colocar los cortes en la cuadrícula de **32×32 píxeles por tile**. Si la proporción cambia mucho, el ajuste dejará márgenes transparentes y el objeto puede quedar demasiado pequeño; genera de nuevo la imagen conservando la proporción.
 
 ## Paso 4: importar (guardar) el PNG nuevo en GoSMS
 
@@ -105,6 +105,40 @@ assets/Alex Kidd in Miracle World (UE) (V1.1) [!]/ai_workspace/objects/sprite_12
 La regla es: **misma carpeta `objects/` y exactamente el mismo nombre de archivo** que la imagen de `input/objects/`. Si la carpeta o el archivo no existen, créalos. No sustituyas la imagen original de `input/objects/`; así puedes volver a compararla o generar otra versión.
 
 Repite los pasos 2–4 para cada objeto que quieras cambiar. Si no hay un PNG nuevo con el nombre correspondiente, ese objeto utilizará sus gráficos originales.
+
+### Ejemplo completo con un PNG real de Alex Kidd
+
+Con la ROM de Alex Kidd indicada en esta guía y la extracción predeterminada, se genera un grupo que muestra a Alex. Su imagen fuente se llama `sprite_0600d6d542c2c03e.png` y mide **140×192 píxeles**. Usa estos pasos para probar el flujo con ese archivo. Si el nombre no aparece en tu extracción, elige el PNG que muestre a Alex y sustituye el nombre del ejemplo por el nombre exacto de ese archivo en los pasos 1 y 4.
+
+1. En el explorador de archivos, abre:
+
+   ```text
+   assets/Alex Kidd in Miracle World (UE) (V1.1) [!]/ai_workspace/input/objects/sprite_0600d6d542c2c03e.png
+   ```
+
+2. Abre la herramienta de IA, elige edición de imagen (*image-to-image*) y carga ese PNG. Copia el prompt genérico de la sección anterior sin añadir el nombre de Alex ni cambiar sus instrucciones.
+3. Descarga el resultado en la resolución más alta que ofrezca la herramienta. Por ejemplo, la imagen de la captura mide **864×1220** y es JPEG; se puede importar aunque no tenga el mismo tamaño que el original. Comprueba que Alex conserve la pose y dirección y que la imagen no esté recortada.
+4. Guarda el resultado en esta carpeta con el mismo ID. Si es JPEG, la extensión será `.jpg`; si es PNG, usa `.png`:
+
+   ```text
+   assets/Alex Kidd in Miracle World (UE) (V1.1) [!]/ai_workspace/objects/sprite_0600d6d542c2c03e.jpg
+   ```
+
+   Si la descarga tiene otro nombre, cámbialo para que coincida con el ID indicado. No reemplaces el archivo que está en `input/objects/`: ese es el original de comparación.
+5. Desde la carpeta del proyecto, crea el pack y abre el mismo juego:
+
+   ```bash
+   make pack ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
+   make run ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
+   ```
+
+6. Cuando aparezca el juego, pulsa **F10**. Alex debería verse con el nuevo dibujo. Pulsa F10 otra vez para comparar con el original.
+
+Si quieres comprobar el tamaño y formato descargado, ejecuta este comando desde la carpeta del proyecto. En el ejemplo JPEG, mostrará `(864, 1220) RGB` (el tamaño puede variar según la herramienta):
+
+```bash
+python3 -c "from PIL import Image; p='assets/Alex Kidd in Miracle World (UE) (V1.1) [!]/ai_workspace/objects/sprite_0600d6d542c2c03e.jpg'; im=Image.open(p); print(im.size, im.mode)"
+```
 
 ## Paso 5: crear el pack HD y abrir el juego
 
