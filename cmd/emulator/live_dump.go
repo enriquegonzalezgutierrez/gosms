@@ -11,15 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hajimehoshi/ebiten/v2"
 	"gosms/pkg/machine"
 	"gosms/pkg/vdp"
-	"github.com/hajimehoshi/ebiten/v2"
 )
 
 type LiveDumper struct {
 	Active      bool
 	UniqueTiles map[string]*image.RGBA
 	Manifest    []machine.TileManifest
+	Document    *machine.TileManifestDocument
 	BaseName    string
 	OutDir      string
 	HdDir       string
@@ -63,8 +64,17 @@ func (ld *LiveDumper) loadExisting() {
 		return
 	}
 	var mf []machine.TileManifest
-	if err := json.Unmarshal(mfData, &mf); err != nil {
-		return
+	if len(mfData) > 0 && mfData[0] == '[' {
+		if err := json.Unmarshal(mfData, &mf); err != nil {
+			return
+		}
+	} else {
+		var document machine.TileManifestDocument
+		if err := json.Unmarshal(mfData, &document); err != nil {
+			return
+		}
+		ld.Document = &document
+		mf = document.Tiles
 	}
 
 	f, err := os.Open(sheetPath)
@@ -279,8 +289,15 @@ func (ld *LiveDumper) Save() int {
 		sf.Close()
 	}
 
-	saveJSONFile(filepath.Join(ld.OutDir, "manifest.json"), ld.Manifest)
-	saveJSONFile(filepath.Join(ld.HdDir, "manifest.json"), ld.Manifest)
+	var savedManifest interface{} = ld.Manifest
+	if ld.Document != nil {
+		document := *ld.Document
+		document.Tiles = ld.Manifest
+		savedManifest = document
+		ld.Document = &document
+	}
+	saveJSONFile(filepath.Join(ld.OutDir, "manifest.json"), savedManifest)
+	saveJSONFile(filepath.Join(ld.HdDir, "manifest.json"), savedManifest)
 
 	saved := ld.NewTiles
 	ld.NewTiles = 0

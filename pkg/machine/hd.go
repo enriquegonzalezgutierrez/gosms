@@ -14,9 +14,50 @@ import (
 )
 
 type TileManifest struct {
-	Hash     string `json:"hash"`
-	Index    int    `json:"index"`
-	IsSprite bool   `json:"is_sprite"`
+	Hash       string `json:"hash"`
+	Index      int    `json:"index"`
+	IsSprite   bool   `json:"is_sprite"`
+	ROMOffsets []int  `json:"rom_offsets,omitempty"`
+}
+
+// TileManifestDocument keeps runtime tile lookup data alongside the human-readable
+// object catalog produced by the asset extractor.
+type TileManifestDocument struct {
+	Version        int                  `json:"version"`
+	ROM            string               `json:"rom"`
+	FramesAnalyzed int                  `json:"frames_analyzed"`
+	Tiles          []TileManifest       `json:"tiles"`
+	Objects        []TileObjectManifest `json:"objects,omitempty"`
+	Scenes         []TileSceneManifest  `json:"scenes,omitempty"`
+}
+
+type TileObjectManifest struct {
+	ID         string                `json:"id"`
+	Kind       string                `json:"kind"`
+	Label      string                `json:"label"`
+	Preview    string                `json:"preview"`
+	FramesSeen int                   `json:"frames_seen"`
+	FirstFrame int                   `json:"first_frame"`
+	Tiles      []TileObjectPlacement `json:"tiles"`
+}
+
+type TileObjectPlacement struct {
+	Index int `json:"index"`
+	X     int `json:"x"`
+	Y     int `json:"y"`
+}
+
+type TileSceneManifest struct {
+	Frame       int     `json:"frame,omitempty"`
+	Image       string  `json:"image"`
+	ScrollX     int     `json:"scroll_x,omitempty"`
+	ScrollY     int     `json:"scroll_y,omitempty"`
+	TileMap     [][]int `json:"tile_map,omitempty"`
+	Level       int     `json:"level,omitempty"`
+	LevelName   string  `json:"level_name,omitempty"`
+	Screen      int     `json:"screen,omitempty"`
+	ROMOffset   int     `json:"rom_offset,omitempty"`
+	MetatileMap [][]int `json:"metatile_map,omitempty"`
 }
 
 type HDRenderer struct {
@@ -61,8 +102,16 @@ func InitHD(romPath string) {
 	}
 
 	var manifest []TileManifest
-	if err := json.Unmarshal(mfData, &manifest); err != nil {
-		return
+	if len(mfData) > 0 && mfData[0] == '[' {
+		if err := json.Unmarshal(mfData, &manifest); err != nil {
+			return
+		}
+	} else {
+		var document TileManifestDocument
+		if err := json.Unmarshal(mfData, &document); err != nil {
+			return
+		}
+		manifest = document.Tiles
 	}
 
 	f, err := os.Open(sheetPath)

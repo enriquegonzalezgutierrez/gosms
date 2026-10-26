@@ -1,10 +1,9 @@
 BIN_DIR := bin
 CMD_DIR := cmd
 PKG_DIR := pkg
+FRAMES ?= 6500
 
 EMU_BIN      := $(BIN_DIR)/emulator
-UPSCALER_DIR := tools/upscaler
-UPSCALER_BIN := $(UPSCALER_DIR)/waifu2x-ncnn-vulkan
 
 BLUE    := \033[1;34m
 CYAN    := \033[1;36m
@@ -14,17 +13,19 @@ WHITE   := \033[1;37m
 RESET   := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help build run hd clean dump unpack pack release audit android-docker
+.PHONY: help build run hd clean dump objects remaster unpack pack test release audit android-docker clean-assets
 
 help:
 	@printf "\n$(BLUE)  ╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
 	@printf "$(BLUE)  ║$(CYAN)      G O S M S   -   Sega Master System Emulator        $(BLUE)║$(RESET)\n"
 	@printf "$(BLUE)  ╚══════════════════════════════════════════════════════════════╝$(RESET)\n\n"
 	@printf "  $(GREEN)make run$(RESET)        Jugar ROM: $(CYAN)make run ROM=roms/sonic.sms$(RESET)\n"
-	@printf "  $(GREEN)make dump$(RESET)       Extrae el 100%% del juego a spritesheet original\n"
-	@printf "  $(GREEN)make hd$(RESET)         Pasa el spritesheet original por IA a 4K (waifu2x)\n"
-	@printf "  $(GREEN)make unpack$(RESET)     Separa el spritesheet en tiles 8x8 individuales para IA\n"
-	@printf "  $(GREEN)make pack$(RESET)       Ensambla los tiles 32x32 procesados en un nuevo spritesheet 4K\n"
+	@printf "  $(GREEN)make test$(RESET)       Ejecuta todos los tests de Go\n"
+	@printf "  $(GREEN)make objects$(RESET)    Limpia y extrae tiles y mapas estáticos (FRAMES=6500)\n"
+	@printf "  $(GREEN)make remaster$(RESET)  Limpia, extrae mapas y prepara composites\n"
+	@printf "  $(GREEN)make unpack$(RESET)     Prepara composites por objeto para remasterizar con IA\n"
+	@printf "  $(GREEN)make pack$(RESET)       Empaqueta los objetos remasterizados para activarlos con F10\n"
+	@printf "  $(GREEN)make hd$(RESET)         Alias de pack para generar el pack HD de una ROM\n"
 	@printf "  $(GREEN)make release$(RESET)    Compila para Linux/Windows/Android y genera los zips\n"
 	@printf "  $(GREEN)make audit$(RESET)      Ejecuta auditoría de compatibilidad de todas las ROMs\n"
 	@printf "  $(GREEN)make clean$(RESET)      Limpia los binarios compilados\n\n"
@@ -40,34 +41,63 @@ else
 	@./$(EMU_BIN)
 endif
 
-dump:
+test:
+	@go test ./...
+
+clean-assets:
 ifdef ROM
-	@printf "$(BLUE)==> Extrayendo spritesheet...$(RESET)\n"
-	@go run ./cmd/dump_assets "$(ROM)"
+	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
+	printf "$(YELLOW)==> Eliminando la extracción anterior de %s...$(RESET)\n" "$$ROM_BASE"; \
+	rm -rf "assets/$$ROM_BASE"
+else
+	@printf "Uso: make clean-assets ROM='roms/Alex Kidd in Miracle World.sms'\n"
+	@exit 2
+endif
+
+dump objects: clean-assets
+ifdef ROM
+	@printf "$(BLUE)==> Extrayendo tiles, objetos y mapas de escena...$(RESET)\n"
+	@go run ./cmd/dump_assets -frames "$(FRAMES)" "$(ROM)"
+else
+	@printf "Uso: make objects ROM='roms/Alex Kidd in Miracle World.sms'\n"
+	@exit 2
+endif
+
+remaster:
+ifdef ROM
+	@$(MAKE) objects ROM="$(ROM)"
+	@$(MAKE) unpack ROM="$(ROM)"
+else
+	@printf "Uso: make remaster ROM='roms/Alex Kidd in Miracle World.sms' [FRAMES=6500]\n"
+	@exit 2
 endif
 
 hd:
 ifdef ROM
-	@ROM_BASE=$$(basename "$(ROM)" .sms); \
-	ORIG_FILE="assets/$$ROM_BASE/original/spritesheet.png"; \
-	HD_FILE="assets/$$ROM_BASE/hd/spritesheet.png"; \
-	printf "$(BLUE)==> Reescalando Spritesheet Único a 4K...$(RESET)\n"; \
-	$(UPSCALER_BIN) -i "$$ORIG_FILE" -o "$$HD_FILE" -s 4 -n 0 -m $(UPSCALER_DIR)/models-cunet; \
-	printf "$(GREEN)✨ SPRITESHEET 4K GENERADO: $$HD_FILE$(RESET)\n"
+	@$(MAKE) pack ROM="$(ROM)"
+else
+	@printf "Uso: make hd ROM='roms/Alex Kidd in Miracle World.sms'\n"
+	@exit 2
 endif
 
 unpack:
 ifdef ROM
-	@ROM_BASE=$$(basename "$(ROM)" .sms); \
+	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
 	printf "$(BLUE)==> Desempaquetando tiles al workspace...$(RESET)\n"; \
 	python3 tools/tile_tool.py unpack "$$ROM_BASE"
+else
+	@printf "Uso: make unpack ROM='roms/Alex Kidd in Miracle World.sms'\n"
+	@exit 2
 endif
 
 pack:
 ifdef ROM
-	@ROM_BASE=$$(basename "$(ROM)" .sms); \
+	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
 	printf "$(BLUE)==> Empaquetando workspace a HD 4K...$(RESET)\n"; \
 	python3 tools/tile_tool.py pack "$$ROM_BASE"
+else
+	@printf "Uso: make pack ROM='roms/Alex Kidd in Miracle World.sms'\n"
+	@exit 2
 endif
 
 audit:

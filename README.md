@@ -82,9 +82,35 @@ make run
 # Compilar binarios de desarrollo en bin/
 make build
 
+# Ejecutar la suite de pruebas Go
+make test
+
 # Ejecutar auditoría de compatibilidad de todas las ROMs
 make audit
 ```
+
+### Remasterizar una ROM por objetos
+
+El volcado conserva los tiles con sus índices de runtime y agrupa sprites contiguos en previews. Para la revisión 1 de Alex Kidd (CRC32 `aed9aac4`), además lee estáticamente las tablas RLE de mapas y metatiles de los 17 niveles; no necesita jugar ni recorrerlos con un bot. Para Alex Kidd, usa el nombre exacto de la ROM local:
+
+```bash
+make remaster ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
+```
+
+`make dump` también se puede invocar como `make objects`; ambos limpian primero `assets/<nombre de ROM>` para evitar mezclar índices de extracciones anteriores. Esa limpieza también elimina el workspace de IA de esa ROM: después de empezar a remasterizar, no vuelvas a ejecutar `make objects` o `make remaster` salvo que quieras regenerarlo desde cero. `FRAMES` solo controla el muestreo suplementario de sprites en ejecución; los tilesets y mapas de Alex Kidd salen de las tablas de la ROM. `make test` ejecuta `go test ./...`.
+
+Esto genera `original/manifest.json`, PNG individuales en `original/tiles/`, previews de grupos en `original/objects/` y una imagen de índices por pantalla en `original/scenes/`. Para los mapas estáticos, cada celda del manifest conserva su `metatile_map` de 16×12 IDs y el offset del bloque en la ROM; la imagen asociada colorea los IDs para visualizar la estructura del nivel, no pretende ser una captura RGB del juego. `make unpack` copia esos mapas a `ai_workspace/scenes/` y prepara `ai_workspace/objects_contact_sheet.png`. El extractor agrupa sprites muestreados por proximidad; no adivina sus nombres. Revisa los previews y cambia el campo `label` de cada objeto a un nombre humano, por ejemplo `Alex`, `árbol` o `pez`. Para agrupar tiles de fondo, añade una entrada en `objects`, por ejemplo `{"id":"tree_001","kind":"background_object","label":"árbol","tiles":[{"index":184,"x":0,"y":0},{"index":185,"x":8,"y":0}]}`. Las posiciones son píxeles; vuelve a ejecutar `make unpack` para generar el composite de ese grupo.
+
+Remasteriza los composites fuente de `ai_workspace/input/objects/` a escala 4×, conservando el lienzo y la cuadrícula de 32 píxeles por tile. Guarda los resultados con el mismo nombre en `ai_workspace/objects/`; así, volver a ejecutar `make unpack` no borra el trabajo de IA. Si un tile compartido necesita una versión distinta, coloca el override individual en `ai_workspace/tiles/bg_NNNN.png` o `spr_NNNN.png`. Tras cualquier cambio, ejecuta `make pack` para regenerar el spritesheet HD; al jugar, F10 activa o desactiva ese pack:
+
+```bash
+make pack ROM="roms/Alex Kidd in Miracle World.sms"
+make run ROM="roms/Alex Kidd in Miracle World.sms"
+```
+
+`make hd ROM="..."` es un alias de `make pack ROM="..."`. En el juego, F10 conmuta el pack HD. El renderer sigue identificando tiles por los hashes y los índices originales del manifest; las etiquetas y previews sirven para el flujo humano/IA y no cambian la ROM.
+
+Los objetivos `unpack`, `pack` y `hd` usan Pillow (`python3 -m pip install Pillow`).
 
 ---
 
