@@ -39,7 +39,7 @@ Diseñado desde cero con foco en la precisión de sincronismo NTSC (≈59.9227 F
 | **Memoria & Mapper** | Gestión de bancos de cartucho Sega (`$FFFD-$FFFF`), RAM de sistema de 8 KB con espejos completos y soporte de persistencia de partidas guardadas con batería SRAM (`.sav`) y snapshots en caliente (`.state`). |
 | **PSG SN76489** | 3 canales de onda cuadrada independientes y generador de ruido blanco/periódico. Sincronización libre de clics a 48.000 Hz acoplada al renderizado del VDP. |
 | **Audio DSP** | Procesamiento digital de señal en tiempo real: filtro paso bajo analógico IIR (~5.5 kHz), dimensionalidad 3D pseudo-estéreo (algoritmo Haas con retardo de 9 ms) y reverberación acústica de recreativa. |
-| **Shaders & Vídeo** | Pipeline multi-pase con Scale2x EPX, rejilla CRT, sharpening adaptativo, bloom multinivel y color grading. El pack HD sustituye tiles por arte remasterizado 4× u 8× y puede combinarse con el postprocesado. |
+| **Shaders & Vídeo** | Pipeline multi-pase con Scale2x EPX, rejilla CRT, bloom multinivel y color grading. El pack HD sustituye tiles por arte remasterizado 4× u 8×, con cielo moderno y luz de altura opcional (**F6**), y puede combinarse con el postprocesado. |
 
 ---
 
