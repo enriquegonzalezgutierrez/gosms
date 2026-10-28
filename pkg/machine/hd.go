@@ -129,8 +129,9 @@ type HDRenderer struct {
 	PageLoaded []bool
 	TileRefs   map[string]HDAtlasTile
 
-	TileMap map[string]*ebiten.Image
-	Scale   int
+	TileMap   map[string]*ebiten.Image
+	ShadowMap map[string]*ebiten.Image
+	Scale     int
 }
 
 var HD *HDRenderer
@@ -288,6 +289,7 @@ func loadHDPackV2(hdDir string, data []byte) bool {
 		TileRefs:   make(map[string]HDAtlasTile),
 		TileMap:    make(map[string]*ebiten.Image),
 		HeightMap:  make(map[string]*ebiten.Image),
+		ShadowMap:  make(map[string]*ebiten.Image),
 		Palette:    loadHDPalette(hdDir),
 		Scale:      scale,
 	}
@@ -396,6 +398,7 @@ func loadHDLegacy(hdDir string) {
 		Sheet:     img,
 		TileMap:   make(map[string]*ebiten.Image),
 		HeightMap: make(map[string]*ebiten.Image),
+		ShadowMap: make(map[string]*ebiten.Image),
 		Palette:   loadHDPalette(hdDir),
 	}
 	heightPath := filepath.Join(hdDir, "heights.png")

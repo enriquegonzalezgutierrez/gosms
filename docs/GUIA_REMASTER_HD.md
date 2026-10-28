@@ -120,9 +120,9 @@ eléctrico mientras el resto de la escena usaba la paleta de cine.
 
 ### Cielo moderno
 
-El cielo plano del SMS no se queda en un color liso. Un pase propio
-(`pkg/video/shaders/sky.kage`) detecta el color exacto del cielo y lo sustituye
-por:
+El cielo plano del SMS no se queda en un color liso. El pase de composición
+(`pkg/video/shaders/composite.kage`) detecta el color exacto del cielo y lo
+sustituye por:
 
 - un **degradado vertical** de azul profundo arriba a azul pálido cerca del
   horizonte;
@@ -243,7 +243,8 @@ make preview ROM="..." PREVIEW_FILTER=modern PREVIEW_HD=true
 O dentro del juego:
 
 - **F10** alterna original y remaster.
-- **F1** recorre los filtros de post-proceso.
+- **F1** recorre los filtros de post-proceso. **REMASTER 2026** es el más
+  completo (luz, cielo y bloom); **SUAVIZADO** es el más ligero.
 - **P** o **Enter** pulsa PAUSE/START (en Alex Kidd abre el mapa e inventario).
 
 Para capturar esa pantalla sin abrir la ventana, `cmd/preview` acepta `-pause`

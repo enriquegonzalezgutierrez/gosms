@@ -13,8 +13,6 @@ import (
 var (
 	fallbackSprImg = ebiten.NewImage(8, 8)
 	fallbackSprBuf = make([]byte, 8*8*4)
-	shadowMaskImg  = ebiten.NewImage(8, 8)
-	shadowMaskBuf  = make([]byte, 8*8*4)
 )
 
 func (hd *HDRenderer) drawFallbackSprite(screen *ebiten.Image, tileData []byte, cram []byte, drawX, drawY, scale float64) {
@@ -61,15 +59,29 @@ func (hd *HDRenderer) drawFallbackSprite(screen *ebiten.Image, tileData []byte, 
 // tileHasHole reports whether a sprite tile uses colour index 0 somewhere.
 // Index 0 is the transparent colour of a sprite; a tile without it is a solid
 // rectangle and must not cast a rectangular shadow over the scene.
-// spriteShadowMask builds an 8x8 mask from the original tile, with only the
-// non-transparent pixels. The HD tile may be an opaque composite (a cloud over
-// its sky); using its alpha would project a rectangle.
-func spriteShadowMask(tileData []byte) {
+// GetShadowMask returns the cached silhouette mask for a sprite tile. Building
+// and uploading it once per unique tile keeps the per-frame shadow pass free of
+// GPU uploads, which used to cost frames on integrated GPUs.
+func (hd *HDRenderer) GetShadowMask(tileData, cram []byte) *ebiten.Image {
+	if hd == nil || !hd.Active {
+		return nil
+	}
+	if hd.ShadowMap == nil {
+		hd.ShadowMap = make(map[string]*ebiten.Image)
+	}
+	key := TileHash(tileData, cram, true)
+	if img, ok := hd.ShadowMap[key]; ok {
+		return img
+	}
+	if !tileHasHole(tileData) {
+		hd.ShadowMap[key] = nil
+		return nil
+	}
+	buf := make([]byte, 8*8*4)
 	for i := 0; i < 8*8; i++ {
-		shadowMaskBuf[i*4] = 255
-		shadowMaskBuf[i*4+1] = 255
-		shadowMaskBuf[i*4+2] = 255
-		shadowMaskBuf[i*4+3] = 0
+		buf[i*4] = 255
+		buf[i*4+1] = 255
+		buf[i*4+2] = 255
 	}
 	for y := 0; y < 8; y++ {
 		b0 := tileData[y*4]
@@ -80,11 +92,17 @@ func spriteShadowMask(tileData []byte) {
 			bit := 7 - x
 			c := ((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3)
 			if c != 0 {
-				shadowMaskBuf[(y*8+x)*4+3] = 255
+				buf[(y*8+x)*4+3] = 255
 			}
 		}
 	}
-	shadowMaskImg.WritePixels(shadowMaskBuf)
+	img := ebiten.NewImage(8, 8)
+	img.WritePixels(buf)
+	if hd.ShadowMap == nil {
+		hd.ShadowMap = make(map[string]*ebiten.Image)
+	}
+	hd.ShadowMap[key] = img
+	return img
 }
 
 func tileHasHole(tileData []byte) bool {
@@ -291,21 +309,20 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 	}
 
 	type spriteDraw struct {
-		img      *ebiten.Image
-		op       *ebiten.DrawImageOptions
-		himg     *ebiten.Image
-		tileData []byte
-		drawX    float64
-		drawY    float64
-		shadow   bool
+		img        *ebiten.Image
+		op         *ebiten.DrawImageOptions
+		himg       *ebiten.Image
+		shadowMask *ebiten.Image
+		drawX      float64
+		drawY      float64
 	}
 	type spritePart struct {
-		img      *ebiten.Image
-		op       *ebiten.DrawImageOptions
-		himg     *ebiten.Image
-		tileData []byte
-		drawX    float64
-		drawY    float64
+		img        *ebiten.Image
+		op         *ebiten.DrawImageOptions
+		himg       *ebiten.Image
+		shadowMask *ebiten.Image
+		drawX      float64
+		drawY      float64
 	}
 	var spriteDraws []spriteDraw
 
@@ -341,24 +358,17 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 				if heightDst != nil {
 					himg = hd.GetHDHeight(tileData, sprCram, true)
 				}
-				spriteParts = append(spriteParts, spritePart{img: img, op: op, himg: himg, tileData: tileData, drawX: drawX, drawY: drawY})
+				spriteParts = append(spriteParts, spritePart{img: img, op: op, himg: himg, shadowMask: hd.GetShadowMask(tileData, sprCram), drawX: drawX, drawY: drawY})
 			} else {
 				hd.drawFallbackSprite(screen, tileData, sprCram, drawX, drawY, scale)
 			}
 		}
 
-		// La sombra es de la figura, no de cada tile. Solo proyectan sombra los
-		// sprites con algun pixel transparente; un tile opaco (una nube sobre
-		// su fondo) no debe dibujar un rectangulo negro.
-		shadow := false
 		for _, part := range spriteParts {
-			if tileHasHole(part.tileData) {
-				shadow = true
-				break
-			}
-		}
-		for _, part := range spriteParts {
-			spriteDraws = append(spriteDraws, spriteDraw{img: part.img, op: part.op, himg: part.himg, tileData: part.tileData, drawX: part.drawX, drawY: part.drawY, shadow: shadow})
+			spriteDraws = append(spriteDraws, spriteDraw{
+				img: part.img, op: part.op, himg: part.himg,
+				shadowMask: part.shadowMask, drawX: part.drawX, drawY: part.drawY,
+			})
 		}
 	}
 
@@ -374,17 +384,16 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 			{offset + 4, offset*1.1 + 4, 0.08},
 		}
 		for _, item := range spriteDraws {
-			if !item.shadow || !tileHasHole(item.tileData) {
+			if item.shadowMask == nil {
 				continue
 			}
-			spriteShadowMask(item.tileData)
 			for _, s := range samples {
 				op := &ebiten.DrawImageOptions{}
 				op.Filter = ebiten.FilterLinear
 				op.GeoM.Scale(scale, scale)
 				op.GeoM.Translate(item.drawX+s[0], item.drawY+s[1])
 				op.ColorScale.Scale(0, 0, 0, float32(s[2]))
-				screen.DrawImage(shadowMaskImg, op)
+				screen.DrawImage(item.shadowMask, op)
 			}
 		}
 	}

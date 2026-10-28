@@ -126,7 +126,7 @@ El acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí) ya es 
 
 El albedo plano es el modo por defecto; para hornear la luz en el PNG usa `CINE_SHADED=1`. Para empaquetar sin mapa de altura (vuelve al relieve por gradiente del shader) usa `CINE_HEIGHTS=0`.
 
-El pack lleva color y altura en paralelo. El filtro **REMASTER 2026** combina esa luz con bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. Para probar otra dirección de luz, `cmd/preview` acepta `-light "x,y"`, `-noheight` y `-nosky`.
+El pack lleva color y altura en paralelo. El filtro **REMASTER 2026** combina esa luz con bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. Para probar otra dirección de luz, `cmd/preview` acepta `-light "x,y"`, `-noheight` y `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva luz, cielo y bloom.
 
 La extracción agrupa bloques de fondo de 8×8 tiles para vectorizar escenarios completos en vez de tiles aislados. Usa `BG_GROUP=0` para desactivarlos o `BG_PROTECT=3` para proteger más filas del HUD.
 

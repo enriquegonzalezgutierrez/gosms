@@ -10,6 +10,12 @@ var Brightness float
 var Exposure float
 var ToneMap float
 var Dither float
+var Sky float
+var SkyColor vec3
+var TopColor vec3
+var HorizonColor vec3
+var Sun vec2
+var Glow float
 
 // aces es la curva filmica de Narkowicz: comprime las luces altas sin
 // recortarlas en plano y mantiene los negros profundos.
@@ -40,6 +46,18 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 		mask = smoothstep(BloomThreshold, BloomThreshold+0.25, luma)
 	}
 	rgb := base.rgb + bloom.rgb*Bloom*mask
+
+	// Cielo moderno, integrado aqui para no anadir otro pase full-screen.
+	// Solo sustituye el color plano exacto del cielo; el terreno y los sprites
+	// conservan su color.
+	if Sky > 0.5 && distance(base.rgb, SkyColor) < 0.06 {
+		size := imageSrc0Size()
+		t := clamp(src0Pos.y/size.y, 0.0, 1.0)
+		g := mix(TopColor, HorizonColor, pow(t, 1.25))
+		p := src0Pos / size
+		glow := exp(-distance(p, Sun)*distance(p, Sun)*22.0) * Glow
+		rgb = mix(g, vec3(1.0, 0.93, 0.80), glow)
+	}
 
 	rgb = rgb * Exposure
 	if ToneMap > 0.5 {
