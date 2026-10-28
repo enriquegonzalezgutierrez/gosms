@@ -2,6 +2,23 @@ BIN_DIR := bin
 CMD_DIR := cmd
 PKG_DIR := pkg
 FRAMES ?= 6500
+PACK_SCALE ?= 4
+BG_GROUP ?= 8
+BG_PROTECT ?= 2
+BOT ?= alex-kidd
+PREVIEW_FILTER ?= modern
+PREVIEW_HD ?= false
+PREVIEW_OUT ?= preview.png
+CINE_ONLY ?=
+CINE_MATCH ?=
+CINE_LIMIT ?= 0
+CINE_SKIP ?= 0
+CINE_TILES ?= 1
+CINE_BEVEL ?= 0.45
+CINE_LIGHT ?= 315,48
+CINE_NOISE ?= 0.03
+
+PY ?= $(shell [ -x .venv-remaster/bin/python ] && echo .venv-remaster/bin/python || echo python3)
 
 EMU_BIN      := $(BIN_DIR)/emulator
 
@@ -13,7 +30,7 @@ WHITE   := \033[1;37m
 RESET   := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help build run hd clean dump objects remaster unpack pack test release audit android-docker clean-assets
+.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test release audit android-docker clean-assets
 
 help:
 	@printf "\n$(BLUE)  ╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
@@ -21,11 +38,13 @@ help:
 	@printf "$(BLUE)  ╚══════════════════════════════════════════════════════════════╝$(RESET)\n\n"
 	@printf "  $(GREEN)make run$(RESET)        Jugar ROM: $(CYAN)make run ROM=roms/sonic.sms$(RESET)\n"
 	@printf "  $(GREEN)make test$(RESET)       Ejecuta todos los tests de Go\n"
-	@printf "  $(GREEN)make objects$(RESET)    Limpia y extrae tiles y mapas estáticos (FRAMES=6500)\n"
-	@printf "  $(GREEN)make remaster$(RESET)  Limpia, extrae mapas y prepara composites\n"
-	@printf "  $(GREEN)make unpack$(RESET)     Prepara composites por objeto para remasterizar con IA\n"
-	@printf "  $(GREEN)make pack$(RESET)       Empaqueta los objetos remasterizados para activarlos con F10\n"
-	@printf "  $(GREEN)make hd$(RESET)         Alias de pack para generar el pack HD de una ROM\n"
+	@printf "  $(GREEN)make objects$(RESET)    Limpia y extrae tiles, mapas y bloques de fondo (FRAMES=6500 BG_GROUP=8)\n"
+	@printf "  $(GREEN)make remaster$(RESET)  Borra, extrae, remasteriza en cinematográfico y empaqueta una ROM\n"
+	@printf "  $(GREEN)make unpack$(RESET)     Prepara composites por objeto en remaster_workspace/\n"
+	@printf "  $(GREEN)make cinematic$(RESET)  Remasteriza todo el catálogo en HD cinematográfico (sin IA)\n"
+	@printf "  $(GREEN)make pack$(RESET)       Empaqueta los objetos remasterizados (PACK_SCALE=4, usa 8 para 1440p/4K)\n"
+	@printf "  $(GREEN)make preview$(RESET)    Renderiza un frame: make preview ROM=... [PREVIEW_FILTER=modern] [PREVIEW_HD=true]\n"
+	@printf "  $(GREEN)make setup$(RESET)      Crea .venv-remaster con numpy (opcional, acelera el vectorizado)\n"
 	@printf "  $(GREEN)make release$(RESET)    Compila para Linux/Windows/Android y genera los zips\n"
 	@printf "  $(GREEN)make audit$(RESET)      Ejecuta auditoría de compatibilidad de todas las ROMs\n"
 	@printf "  $(GREEN)make clean$(RESET)      Limpia los binarios compilados\n\n"
@@ -45,19 +64,13 @@ test:
 	@go test ./...
 
 clean-assets:
-ifdef ROM
-	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
-	printf "$(YELLOW)==> Eliminando la extracción anterior de %s...$(RESET)\n" "$$ROM_BASE"; \
-	rm -rf "assets/$$ROM_BASE"
-else
-	@printf "Uso: make clean-assets ROM='roms/Alex Kidd in Miracle World.sms'\n"
-	@exit 2
-endif
+	@printf "$(YELLOW)==> Eliminando la carpeta assets/ completa...$(RESET)\n"
+	@rm -rf assets
 
 dump objects: clean-assets
 ifdef ROM
 	@printf "$(BLUE)==> Extrayendo tiles, objetos y mapas de escena...$(RESET)\n"
-	@go run ./cmd/dump_assets -frames "$(FRAMES)" "$(ROM)"
+	@go run ./cmd/dump_assets -frames "$(FRAMES)" -bot "$(BOT)" -bg-group "$(BG_GROUP)" -bg-protect "$(BG_PROTECT)" "$(ROM)"
 else
 	@printf "Uso: make objects ROM='roms/Alex Kidd in Miracle World.sms'\n"
 	@exit 2
@@ -67,16 +80,10 @@ remaster:
 ifdef ROM
 	@$(MAKE) objects ROM="$(ROM)"
 	@$(MAKE) unpack ROM="$(ROM)"
-else
-	@printf "Uso: make remaster ROM='roms/Alex Kidd in Miracle World.sms' [FRAMES=6500]\n"
-	@exit 2
-endif
-
-hd:
-ifdef ROM
+	@$(MAKE) cinematic ROM="$(ROM)"
 	@$(MAKE) pack ROM="$(ROM)"
 else
-	@printf "Uso: make hd ROM='roms/Alex Kidd in Miracle World.sms'\n"
+	@printf "Uso: make remaster ROM='roms/Alex Kidd in Miracle World.sms' [FRAMES=6500]\n"
 	@exit 2
 endif
 
@@ -84,19 +91,49 @@ unpack:
 ifdef ROM
 	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
 	printf "$(BLUE)==> Desempaquetando tiles al workspace...$(RESET)\n"; \
-	python3 tools/tile_tool.py unpack "$$ROM_BASE"
+	$(PY) tools/tile_tool.py unpack "$$ROM_BASE"
 else
 	@printf "Uso: make unpack ROM='roms/Alex Kidd in Miracle World.sms'\n"
+	@exit 2
+endif
+
+setup:
+	@printf "$(BLUE)==> Creando .venv-remaster con numpy...$(RESET)\n"
+	@python3 -m venv .venv-remaster
+	@.venv-remaster/bin/pip install --upgrade pip > /dev/null
+	@.venv-remaster/bin/pip install numpy Pillow
+
+cinematic:
+ifdef ROM
+	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
+	set -- --rom-name "$$ROM_BASE" --limit "$(CINE_LIMIT)" --bevel "$(CINE_BEVEL)" \
+		--light "$(CINE_LIGHT)" --noise "$(CINE_NOISE)"; \
+	if [ -n "$(CINE_ONLY)" ]; then set -- "$$@" --only "$(CINE_ONLY)"; fi; \
+	if [ -n "$(CINE_MATCH)" ]; then set -- "$$@" --match "$(CINE_MATCH)"; fi; \
+	if [ "$(CINE_SKIP)" = "1" ]; then set -- "$$@" --skip-existing; fi; \
+	if [ "$(CINE_TILES)" = "0" ]; then set -- "$$@" --no-tiles; fi; \
+	GOSMS_SCALE=$(PACK_SCALE) PYTHONUNBUFFERED=1 $(PY) tools/cinematic_tool.py "$$@"
+else
+	@printf "Uso: make cinematic ROM='roms/juego.sms' [PACK_SCALE=4] [CINE_MATCH=sprite_] [CINE_ONLY=id] [CINE_LIMIT=0] [CINE_SKIP=0]\n"
 	@exit 2
 endif
 
 pack:
 ifdef ROM
 	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
-	printf "$(BLUE)==> Empaquetando workspace a HD 4K...$(RESET)\n"; \
-	python3 tools/tile_tool.py pack "$$ROM_BASE"
+	printf "$(BLUE)==> Empaquetando workspace a HD %sx...$(RESET)\n" "$(PACK_SCALE)"; \
+	GOSMS_SCALE=$(PACK_SCALE) $(PY) tools/tile_tool.py pack "$$ROM_BASE"
 else
 	@printf "Uso: make pack ROM='roms/Alex Kidd in Miracle World.sms'\n"
+	@exit 2
+endif
+
+preview:
+ifdef ROM
+	@printf "$(BLUE)==> Renderizando preview (%s, HD=%s)...$(RESET)\n" "$(PREVIEW_FILTER)" "$(PREVIEW_HD)"
+	@go run ./cmd/preview -frames "$(FRAMES)" -filter "$(PREVIEW_FILTER)" -hd=$(PREVIEW_HD) -out "$(PREVIEW_OUT)" "$(ROM)"
+else
+	@printf "Uso: make preview ROM='roms/juego.sms' [PREVIEW_FILTER=pixel|smooth|modern|crt|scanlines|mono] [PREVIEW_HD=true] [PREVIEW_OUT=preview.png]\n"
 	@exit 2
 endif
 

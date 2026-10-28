@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-GoSMS is a Sega Master System emulator written in Go (module `gosms`). Core emulation code lives in `pkg/`: `cpu`, `vdp`, `psg`, and `machine`. Executable entry points are under `cmd/`, including `emulator`, `headless`, `tracer`, `audit`, and `dump_assets`. The Android/Ebiten integration is in `mobile/`. Asset extraction and tile utilities live in `tools/`; generated graphics go under `assets/`, and architecture or product images are in `docs/media/`. Keep tests beside the code they cover, named `*_test.go`.
+GoSMS is a Sega Master System emulator written in Go (module `gosms`). Core emulation code lives in `pkg/`: `cpu`, `vdp`, `psg`, `machine`, and `video`. Executable entry points are under `cmd/`, including `emulator`, `headless`, `preview`, `tracer`, `audit`, and `dump_assets`. The Android/Ebiten integration is in `mobile/`. Asset extraction and tile utilities live in `tools/`; generated graphics go under `assets/`, and architecture or product images are in `docs/media/`. Keep tests beside the code they cover, named `*_test.go`.
 
 ## Build, Test, and Development Commands
 
@@ -11,9 +11,12 @@ GoSMS is a Sega Master System emulator written in Go (module `gosms`). Core emul
 - `make build` builds the desktop emulator at `bin/emulator`.
 - `make run ROM=roms/game.sms` builds and starts the emulator with a ROM.
 - `make objects ROM=roms/game.sms FRAMES=6500` removes the prior output for that ROM, then extracts tiles and scenes. Alex Kidd Rev 1 layouts are decoded statically from ROM data; `FRAMES` only controls supplemental sprite sampling.
-- `make remaster ROM=...` runs the clean extraction and prepares the AI workspace.
-- `make unpack ROM=...`, `make pack ROM=...`, and `make hd ROM=...` prepare and package remastered art for F10.
+- `make remaster ROM=...` wipes the ROM's assets, extracts them, vectorises every object and packs the HD sheet in one go.
+- `make unpack ROM=...`, `make cinematic ROM=...`, and `make pack ROM=...` run those steps individually. The remaster is purely geometric (signed distance fields, anti-aliasing, bevelled lighting); there are no models or downloads.
+- `make cinematic ROM=...` remasters the whole catalogue with the cinematic palette in `tools/grades.py` (`CINE_MATCH=sprite_` limits it to sprites).
+- `make preview ROM=...` renders a single frame for comparison. `make setup` creates `.venv-remaster` with numpy and Pillow.
 - `go run ./cmd/headless -frames 120 -out frame.png roms/game.sms` renders frames without the desktop UI.
+- `go run ./cmd/preview -frames 900 -filter modern -hd -out preview.png roms/game.sms` renders one frame with the post-processing pipeline and optional HD pack.
 - `make audit` scans ROMs in `roms/`; `make dump ROM=roms/game.sms` extracts graphics.
 - `make release` builds Linux, Windows, and Android artifacts; it requires Docker for Android packaging.
 

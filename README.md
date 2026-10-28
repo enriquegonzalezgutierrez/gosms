@@ -16,7 +16,7 @@
 
 **GoSMS** es un emulador de **Sega Master System (SMS)** de alto rendimiento, ciclo-exacto y multiplataforma, desarrollado en **Go puro** con aceleración gráfica mediante [Ebitengine](https://ebitengine.org/). 
 
-Diseñado desde cero con foco en la precisión de sincronismo NTSC (≈59.9227 FPS), emulación acústica de calidad de estudio sin deriva ni artefactos digitales, post-procesado visual en tiempo real (CRT Scanlines, Scale2x EPX, Remaster OLED 2026) y generación automatizada de paquetes portables para **Linux**, **Windows** y **Android (APK nativo con controles táctiles HUD)**.
+Diseñado desde cero con foco en la precisión de sincronismo NTSC (≈59.9227 FPS), emulación acústica de calidad de estudio sin deriva ni artefactos digitales, post-procesado visual en tiempo real (CRT Scanlines, Scale2x EPX, Remaster 2026 con sharpening, bloom y color grading) y generación automatizada de paquetes portables para **Linux**, **Windows** y **Android (APK nativo con controles táctiles HUD)**.
 
 <p align="center">
   <img src="docs/media/features-grid.svg" alt="GoSMS Features Grid" width="100%"/>
@@ -39,7 +39,7 @@ Diseñado desde cero con foco en la precisión de sincronismo NTSC (≈59.9227 F
 | **Memoria & Mapper** | Gestión de bancos de cartucho Sega (`$FFFD-$FFFF`), RAM de sistema de 8 KB con espejos completos y soporte de persistencia de partidas guardadas con batería SRAM (`.sav`) y snapshots en caliente (`.state`). |
 | **PSG SN76489** | 3 canales de onda cuadrada independientes y generador de ruido blanco/periódico. Sincronización libre de clics a 48.000 Hz acoplada al renderizado del VDP. |
 | **Audio DSP** | Procesamiento digital de señal en tiempo real: filtro paso bajo analógico IIR (~5.5 kHz), dimensionalidad 3D pseudo-estéreo (algoritmo Haas con retardo de 9 ms) y reverberación acústica de recreativa. |
-| **Shaders & Vídeo** | Pipeline de post-procesado con Scale2x EPX en CPU, rejilla de scanlines CRT calibrada y shader Kage *Remaster 2026* con saturación OLED, curva de contraste gamma y bloom sutil. |
+| **Shaders & Vídeo** | Pipeline multi-pase con Scale2x EPX, rejilla CRT, sharpening adaptativo, bloom multinivel y color grading. El pack HD sustituye tiles por arte remasterizado 4× u 8× y puede combinarse con el postprocesado. |
 
 ---
 
@@ -89,17 +89,44 @@ make test
 make audit
 ```
 
-### Remasterizar una ROM por objetos
+### Remasterizar una ROM
 
-Para extraer gráficos, preparar imágenes para IA, empaquetar remasters y probarlos con F10, sigue la [Guía de remasterización HD con IA](docs/GUIA_REMASTER_HD.md). Incluye el prompt de imagen a imagen, los formatos y tamaños que deben conservarse y qué carpetas contienen objetos modificables o atlas técnicos.
+El remaster es **matemático, sin IA**: vectoriza cada objeto con campos de distancia, aplica antialiasing real y le da volumen con una luz fija. No descarga modelos y es determinista.
 
-Para Alex Kidd, el comando inicial es:
+Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaqueta):
 
 ```bash
 make remaster ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 ```
 
-`make remaster` y `make objects` borran primero la carpeta de assets generados de esa ROM. Para rehacer solo las imágenes fuente sin borrar los remasters, usa `make unpack`. Los objetivos `unpack`, `pack` y `hd` usan Pillow (`python3 -m pip install Pillow`).
+Necesita Python 3 con `numpy` y `Pillow`. `make setup` crea `.venv-remaster/` con ambas.
+
+Por defecto se genera un pack 4× (cada tile de 8×8 pasa a 32×32). Para 1440p o 4K puedes generar un pack 8×, que se divide automáticamente en páginas de textura:
+
+```bash
+make pack ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms" PACK_SCALE=8
+```
+
+Puedes ajustar el acabado sin volver a extraer:
+
+```bash
+make cinematic ROM="..." CINE_BEVEL=0.55 CINE_LIGHT=315,48 CINE_NOISE=0.03
+make pack ROM="..."
+make run ROM="..."
+```
+
+Si prefieres el acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí), usa el mismo motor con la paleta cinematográfica; procesa todo el catálogo y luego empaqueta:
+
+```bash
+make cinematic ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
+make pack ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
+```
+
+La extracción agrupa bloques de fondo de 8×8 tiles para vectorizar escenarios completos en vez de tiles aislados. Usa `BG_GROUP=0` para desactivarlos o `BG_PROTECT=3` para proteger más filas del HUD.
+
+`make pack` informa de la cobertura por fuente (composites, fallback por tile, overrides manuales) y deja el detalle de los tiles compartidos en `hd/conflicts.json`.
+
+Los detalles del algoritmo, los parámetros y las carpetas de trabajo están en la [Guía de remasterización HD](docs/GUIA_REMASTER_HD.md).
 
 ---
 
@@ -134,6 +161,10 @@ El repositorio incluye herramientas CLI dedicadas para análisis técnico:
 - **`cmd/tracer`**: Trazador de ciclo a ciclo de instrucciones Z80 con seguimiento de registros y flags:
   ```bash
   go run ./cmd/tracer -n 5000 ruta/juego.sms
+  ```
+- **`cmd/preview`**: Renderiza un único frame a PNG con el mismo pipeline de postprocesado y el pack HD. Sirve para comparar filtros sin abrir el emulador:
+  ```bash
+  go run ./cmd/preview -frames 900 -filter modern -hd -out preview.png roms/juego.sms
   ```
 
 ---

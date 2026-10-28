@@ -1,5 +1,9 @@
 # Binarios generados
 bin/
+.venv-ai/
+.venv-remaster/
+__pycache__/
+*.pyc
 
 # ROMs e imágenes de juegos (¡MUY IMPORTANTE!)
 roms/

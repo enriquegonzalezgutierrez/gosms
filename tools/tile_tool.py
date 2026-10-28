@@ -8,10 +8,14 @@ import sys
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageOps
 
 
-SCALE = 4
+SCALE = max(1, int(os.environ.get("GOSMS_SCALE", "4")))
 CELL = 12 * SCALE
 PADDING = 2 * SCALE
 TILE_SIZE = 8 * SCALE
+PAGE_SIZE = max(1024, int(os.environ.get("GOSMS_PAGE_SIZE", "4096")))
+# Large packs are split into texture pages. Small packs keep the compact v1
+# single-sheet format unless the caller explicitly asks for pages.
+WRITE_PAGES = SCALE >= 8 or os.environ.get("GOSMS_PAGES", "0") == "1"
 
 
 def read_manifest(path):
@@ -29,11 +33,11 @@ def tile_filename(item):
     return f"{prefix}_{item['index']:04d}.png"
 
 
-def remastered_object_path(ai_dir, object_id):
+def remastered_object_path(work_dir, object_id):
     # Image generators may return a different format than requested. Prefer
     # lossless formats if more than one result is present.
     for extension in ("png", "webp", "jpg", "jpeg"):
-        path = os.path.join(ai_dir, "objects", f"{object_id}.{extension}")
+        path = os.path.join(work_dir, "objects", f"{object_id}.{extension}")
         if os.path.isfile(path):
             return path
     return None
@@ -147,7 +151,7 @@ def unpack(rom_name):
     root = os.path.join("assets", rom_name)
     original_dir = os.path.join(root, "original")
     tile_dir = os.path.join(original_dir, "tiles")
-    out_dir = os.path.join(root, "ai_workspace")
+    out_dir = os.path.join(root, "remaster_workspace")
     source_object_dir = os.path.join(out_dir, "input", "objects")
     os.makedirs(source_object_dir, exist_ok=True)
     os.makedirs(os.path.join(out_dir, "objects"), exist_ok=True)
@@ -188,7 +192,7 @@ def unpack(rom_name):
 
     with open(os.path.join(out_dir, "objects.csv"), "w", newline="", encoding="utf-8") as output:
         writer = csv.writer(output)
-        writer.writerow(("id", "label", "kind", "frames_seen", "tile_indices", "source_image", "ai_output"))
+        writer.writerow(("id", "label", "kind", "frames_seen", "tile_indices", "source_image", "remaster_output"))
         for obj in document["objects"]:
             indices = sorted({tile["index"] for tile in obj.get("tiles", [])})
             is_object = is_remasterable_object(obj)
@@ -203,8 +207,8 @@ def unpack(rom_name):
     readme = os.path.join(out_dir, "README.txt")
     with open(readme, "w", encoding="utf-8") as output:
         output.write("Usa input/objects/ para remasterizar objetos coherentes y guarda los resultados en objects/ con el mismo ID; se aceptan PNG, JPEG y WebP a cualquier resolución.\n")
-        output.write("El empaquetador adapta el resultado, sin recortarlo ni estirarlo, a la cuadrícula original de 32 px por tile y recupera la transparencia del original.\n")
-        output.write("pack aplica cada tile de objeto al índice indicado en original/manifest.json.\n")
+        output.write(f"El empaquetador adapta el resultado, sin recortarlo ni estirarlo, a la cuadrícula original de {TILE_SIZE} px por tile y recupera la transparencia del original.\n")
+        output.write("pack aplica primero tile_fallback/, después los objetos y por último los overrides de tiles/ (mayor prioridad).\n")
         output.write("Los sprite_tileset y background_tileset son atlas técnicos de patrones 8x8: no son objetos y no se exportan a input/objects. Sus entradas se conservan en el manifest para mapear sus tiles.\n")
         output.write("Los tiles compartidos por varios objetos generan conflictos; resuélvelos creando un override en tiles/bg_NNNN.png o tiles/spr_NNNN.png.\n")
         output.write("Edita el campo label de objects[] en original/manifest.json para identificar cada objeto.\n")
@@ -229,30 +233,55 @@ def pack(rom_name):
     root = os.path.join("assets", rom_name)
     original_dir = os.path.join(root, "original")
     tile_dir = os.path.join(original_dir, "tiles")
-    ai_dir = os.path.join(root, "ai_workspace")
+    work_dir = os.path.join(root, "remaster_workspace")
     hd_dir = os.path.join(root, "hd")
     os.makedirs(hd_dir, exist_ok=True)
     document = read_manifest(os.path.join(original_dir, "manifest.json"))
     tiles = document["tiles"]
+    tiles_by_index = {item["index"]: item for item in tiles}
     original_sheet_path = os.path.join(original_dir, "spritesheet.png")
     original_sheet = Image.open(original_sheet_path).convert("RGBA") if os.path.exists(original_sheet_path) else None
 
-    cols = 32
-    rows = max(1, (len(tiles) + cols - 1) // cols)
-    sheet = Image.new("RGBA", (cols * CELL, rows * CELL), (0, 0, 0, 0))
     remastered = {}
     conflicts = []
+    conflict_sources = {}
 
-    # Start with exact 4x nearest-neighbor versions; object composites replace these.
+    # Start with exact nearest-neighbor versions; object composites replace these.
     for item in tiles:
         index = item["index"]
         source = load_original_tile(item, tile_dir, original_sheet)
         if source is not None:
             remastered[index] = source.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.NEAREST)
 
+    # Per-tile neural fallback. It covers tiles that no coherent object reaches,
+    # but object composites still take precedence below.
+    fallback_dir = os.path.join(work_dir, "tile_fallback")
+    fallback_tiles = set()
+    for item in tiles:
+        index = item["index"]
+        fallback = os.path.join(fallback_dir, tile_filename(item))
+        if os.path.exists(fallback):
+            with Image.open(fallback) as source:
+                remastered[index] = source.convert("RGBA").resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
+            fallback_tiles.add(index)
+    fallback_count = len(fallback_tiles)
+
     object_tiles = {}
-    for obj in document["objects"]:
-        path = remastered_object_path(ai_dir, obj["id"])
+    object_owners = {}
+    # When two objects share a tile, prefer the one seen in more frames. Sprites
+    # win ties because a character tile is usually more visible than a piece of
+    # background reused across scenes.
+    objects_by_priority = sorted(
+        document["objects"],
+        key=lambda obj: (
+            1 if obj.get("kind") == "sprite_cluster" else 0,
+            obj.get("frames_seen", 0),
+            len(obj.get("tiles", [])),
+        ),
+        reverse=True,
+    )
+    for obj in objects_by_priority:
+        path = remastered_object_path(work_dir, obj["id"])
         if path is None:
             continue
         placements = obj.get("tiles", [])
@@ -261,12 +290,12 @@ def pack(rom_name):
         logical_width = max(tile["x"] + 8 for tile in placements)
         logical_height = max(tile["y"] + 8 for tile in placements)
         expected_size = (logical_width * SCALE, logical_height * SCALE)
-        reference_path = os.path.join(ai_dir, "input", "objects", f"{obj['id']}.png")
+        reference_path = os.path.join(work_dir, "input", "objects", f"{obj['id']}.png")
         with Image.open(path) as source:
             original_size = source.size
         composite = load_remastered_object(path, reference_path, expected_size)
         if original_size != expected_size:
-            print(f"🔎 Adaptando {os.path.basename(path)}: {original_size[0]}x{original_size[1]} → {expected_size[0]}x{expected_size[1]} (cuadrícula 4x)")
+            print(f"🔎 Adaptando {os.path.basename(path)}: {original_size[0]}x{original_size[1]} → {expected_size[0]}x{expected_size[1]} (cuadrícula {SCALE}x)")
         for placement in obj.get("tiles", []):
             index = placement["index"]
             x, y = placement["x"] * SCALE, placement["y"] * SCALE
@@ -277,37 +306,138 @@ def pack(rom_name):
                 continue
             if index in object_tiles and object_tiles[index].tobytes() != crop.tobytes():
                 conflicts.append(index)
+                conflict_sources.setdefault(index, []).append(obj["id"])
                 continue
             object_tiles[index] = crop
+            object_owners[index] = obj["id"]
     remastered.update(object_tiles)
 
     # An explicit per-tile override takes precedence over any grouped object.
-    override_dir = os.path.join(ai_dir, "tiles")
+    override_dir = os.path.join(work_dir, "tiles")
+    override_tiles = set()
     for item in tiles:
         index = item["index"]
         override = os.path.join(override_dir, tile_filename(item))
         if os.path.exists(override):
             with Image.open(override) as source:
                 remastered[index] = source.convert("RGBA").resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
+            override_tiles.add(index)
 
-    for item in tiles:
-        index = item["index"]
-        tile = remastered.get(index)
-        if tile is None:
-            continue
-        x = (index % cols) * CELL
-        y = (index // cols) * CELL
-        paste_with_gutter(sheet, tile, x, y)
+    covered_tiles = fallback_tiles | set(object_tiles) | override_tiles
+    nearest_count = max(0, len(tiles) - len(covered_tiles))
+    coverage = len(covered_tiles) * 100.0 / max(1, len(tiles))
 
-    sheet.save(os.path.join(hd_dir, "spritesheet.png"))
-    with open(os.path.join(hd_dir, "manifest.json"), "w", encoding="utf-8") as output:
-        json.dump(document, output, indent=2, ensure_ascii=False)
+    if WRITE_PAGES:
+        cols_per_page = max(1, PAGE_SIZE // CELL)
+        rows_per_page = max(1, PAGE_SIZE // CELL)
+        capacity = cols_per_page * rows_per_page
+        placed = [(item, remastered[item["index"]]) for item in tiles if item["index"] in remastered]
+        page_count = max(1, math.ceil(len(placed) / capacity))
+        pages = [Image.new("RGBA", (PAGE_SIZE, PAGE_SIZE), (0, 0, 0, 0)) for _ in range(page_count)]
+        page_tiles = []
+        page_names = []
+        pages_dir = os.path.join(hd_dir, "pages")
+        os.makedirs(pages_dir, exist_ok=True)
+
+        for i, (item, tile) in enumerate(placed):
+            page_index = i // capacity
+            slot = i % capacity
+            col = slot % cols_per_page
+            row = slot // cols_per_page
+            x = col * CELL
+            y = row * CELL
+            paste_with_gutter(pages[page_index], tile, x, y)
+            page_tiles.append({
+                "hash": item["hash"],
+                "page": page_index,
+                "x": x + PADDING,
+                "y": y + PADDING,
+                "w": TILE_SIZE,
+                "h": TILE_SIZE,
+                "is_sprite": bool(item.get("is_sprite", False)),
+            })
+
+        for page_index, page in enumerate(pages):
+            name = f"pages/page_{page_index:03d}.png"
+            page.save(os.path.join(hd_dir, name))
+            page_names.append({"file": name, "width": PAGE_SIZE, "height": PAGE_SIZE})
+
+        pack_document = {
+            "version": 2,
+            "rom": document.get("rom", rom_name),
+            "scale": SCALE,
+            "tile_size": 8,
+            "pages": page_names,
+            "tiles": page_tiles,
+            "objects": document.get("objects", []),
+            "scenes": document.get("scenes", []),
+        }
+        with open(os.path.join(hd_dir, "pack.json"), "w", encoding="utf-8") as output:
+            json.dump(pack_document, output, indent=2, ensure_ascii=False)
+
+        # Remove the old single-sheet pack so the runtime does not silently
+        # fall back to stale art if a page cannot be loaded.
+        stale_sheet = os.path.join(hd_dir, "spritesheet.png")
+        if os.path.exists(stale_sheet):
+            os.remove(stale_sheet)
+        stale_manifest = os.path.join(hd_dir, "manifest.json")
+        if os.path.exists(stale_manifest):
+            os.remove(stale_manifest)
+        print(f"✨ Pack HD v2 listo: {len(placed)}/{len(tiles)} tiles en {page_count} página(s) de {PAGE_SIZE}px, escala {SCALE}x")
+        print(f"📊 Cobertura: {len(covered_tiles)}/{len(tiles)} tiles ({coverage:.1f}%): "
+              f"{fallback_count} fallback, {len(object_tiles)} objetos, {len(override_tiles)} overrides; {nearest_count} nearest")
+    else:
+        cols = 32
+        rows = max(1, (len(tiles) + cols - 1) // cols)
+        sheet = Image.new("RGBA", (cols * CELL, rows * CELL), (0, 0, 0, 0))
+        for item in tiles:
+            index = item["index"]
+            tile = remastered.get(index)
+            if tile is None:
+                continue
+            x = (index % cols) * CELL
+            y = (index // cols) * CELL
+            paste_with_gutter(sheet, tile, x, y)
+
+        sheet.save(os.path.join(hd_dir, "spritesheet.png"))
+        with open(os.path.join(hd_dir, "manifest.json"), "w", encoding="utf-8") as output:
+            json.dump(document, output, indent=2, ensure_ascii=False)
+        print(f"✨ Pack HD v1 listo: {len(remastered)}/{len(tiles)} tiles en {hd_dir}/spritesheet.png (escala {SCALE}x)")
+        print(f"📊 Cobertura: {len(covered_tiles)}/{len(tiles)} tiles ({coverage:.1f}%): "
+              f"{fallback_count} fallback, {len(object_tiles)} objetos, {len(override_tiles)} overrides; {nearest_count} nearest")
+
     if original_sheet is not None:
         original_sheet.close()
-    print(f"✨ Pack HD listo: {len(remastered)}/{len(tiles)} tiles en {hd_dir}/spritesheet.png")
     if conflicts:
-        print("⚠️ Tiles compartidos con remasters distintos: " + ", ".join(map(str, sorted(set(conflicts)))))
-        print(f"   Resuélvelos con overrides individuales en {override_dir}/.")
+        unique_conflicts = sorted(set(conflicts))
+        shown = ", ".join(map(str, unique_conflicts[:20]))
+        suffix = " ..." if len(unique_conflicts) > 20 else ""
+        print(f"⚠️ {len(unique_conflicts)} tiles compartidos con remasters distintos: {shown}{suffix}")
+        print(f"   Se conserva la versión del objeto con más frames vistos. Resuelve casos concretos en {override_dir}/.")
+        lost = {}
+        for index in unique_conflicts:
+            for object_id in conflict_sources.get(index, []):
+                lost[object_id] = lost.get(object_id, 0) + 1
+        report = {
+            "scale": SCALE,
+            "tile_size": TILE_SIZE,
+            "count": len(unique_conflicts),
+            "objects_affected": len(lost),
+            "rejected_by_object": dict(sorted(lost.items(), key=lambda item: item[1], reverse=True)),
+            "tiles": [
+                {
+                    "index": index,
+                    "file": tile_filename(tiles_by_index[index]) if index in tiles_by_index else None,
+                    "kept": object_owners.get(index),
+                    "rejected": conflict_sources.get(index, []),
+                }
+                for index in unique_conflicts
+            ],
+        }
+        report_path = os.path.join(hd_dir, "conflicts.json")
+        with open(report_path, "w", encoding="utf-8") as output:
+            json.dump(report, output, indent=2, ensure_ascii=False)
+        print(f"   Informe con el detalle de cada conflicto: {report_path}")
 
 
 if __name__ == "__main__":
