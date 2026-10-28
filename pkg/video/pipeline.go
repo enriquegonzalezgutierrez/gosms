@@ -163,6 +163,9 @@ func DefaultOptions(preset Preset, hd bool) Options {
 			opts.ReliefRim = 0.015
 		}
 	}
+	// El remaster usa albedo plano: sin pase de altura ni relieve dinamico.
+	opts.HeightLit = 0
+	opts.Relief = 0
 	return opts
 }
 

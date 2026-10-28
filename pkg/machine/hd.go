@@ -401,15 +401,6 @@ func loadHDLegacy(hdDir string) {
 		ShadowMap: make(map[string]*ebiten.Image),
 		Palette:   loadHDPalette(hdDir),
 	}
-	heightPath := filepath.Join(hdDir, "heights.png")
-	if hf, err := os.Open(heightPath); err == nil {
-		if decodedHeight, _, err := image.Decode(hf); err == nil &&
-			decodedHeight.Bounds().Dx() == img.Bounds().Dx() && decodedHeight.Bounds().Dy() == img.Bounds().Dy() {
-			hd.HeightSheet = ebiten.NewImageFromImage(decodedHeight)
-			hd.HasHeight = true
-		}
-		_ = hf.Close()
-	}
 	cols := 32
 	scale := img.Bounds().Dx() / (cols * 12)
 	if scale < 1 {
@@ -430,9 +421,6 @@ func loadHDLegacy(hdDir string) {
 		}
 		rect := image.Rect(gx, gy, gx+tileSize, gy+tileSize)
 		hd.TileMap[m.Hash] = img.SubImage(rect).(*ebiten.Image)
-		if hd.HeightSheet != nil {
-			hd.HeightMap[m.Hash] = hd.HeightSheet.SubImage(rect).(*ebiten.Image)
-		}
 	}
 
 	HD = hd

@@ -18,7 +18,7 @@ CINE_BEVEL ?= 1.8
 CINE_LIGHT ?= 315,48
 CINE_NOISE ?= 0.03
 CINE_SHADED ?= 0
-CINE_HEIGHTS ?= 1
+CINE_HEIGHTS ?= 0
 
 PY ?= $(shell [ -x .venv-remaster/bin/python ] && echo .venv-remaster/bin/python || echo python3)
 

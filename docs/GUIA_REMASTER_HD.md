@@ -1,7 +1,7 @@
-# Remaster HD sin IA: vectorización y volumen
+# Remaster HD sin IA: vectorización y cielo moderno
 
-Esta guía explica cómo GoSMS genera un pack de gráficos en alta definición a partir de una ROM, **sin modelos de IA y sin descargas**. Todo el proceso es geometría: campos de distancia, antialiasing y un mapa de
-altura que el emulador ilumina en tiempo real.
+Esta guía explica cómo GoSMS genera un pack de gráficos en alta definición a partir de una ROM, **sin modelos de IA y sin descargas**. Todo el proceso es geometría: campos de distancia, antialiasing y una paleta de
+cine. El emulador añade el cielo moderno y el postprocesado.
 
 Al terminar tendrás el juego con los gráficos remasterizados y podrás comparar con el original usando **F10**.
 
@@ -11,10 +11,6 @@ Hace:
 
 - elimina el escalón de bloque de cada contorno (el borde deja de ser una escalera);
 - suaviza las esquinas con antialiasing real;
-- puede convertir cada color plano en una superficie con volumen, bisel y brillo
-  (luz de altura opcional, **F6**);
-- guarda la altura de cada pieza para que la luz se calcule en pantalla cuando
-  la activas (F6), con especular, contraluz y sombra de los sprites;
 - sustituye el azul plano del cielo por un degradado con halo de sol;
 - rompe la uniformidad de las zonas grandes con un grano suave;
 - conserva el dibujo, la pose y la posición exactos; la paleta de la consola
@@ -26,8 +22,8 @@ No hace:
 - no rediseña personajes ni cambia colores;
 - no convierte el juego en una foto.
 
-Es un remaster vectorial: el dibujo original limpio; el volumen es opcional
-con **F6** (o se puede hornear en el pack con `CINE_SHADED=1`).
+Es un remaster vectorial: el dibujo original limpio, con la paleta de cine y el
+cielo moderno.
 
 ## Requisitos
 
@@ -61,7 +57,7 @@ make run ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 ```
 
 Y compara con **F10**. El paso 4 ya aplica el acabado de cine; los ajustes de
-paleta, bisel y luz están más abajo.
+paleta y grano están más abajo.
 
 > El primer paso borra la carpeta de assets de esa ROM. Como todo se regenera desde la ROM, no se pierde nada que no puedas volver a calcular. Los overrides manuales de `remaster_workspace/tiles/` sí se pierden: cópialos fuera antes de repetir `make remaster`.
 
@@ -73,9 +69,7 @@ Por defecto el pack es 4×: cada tile de 8×8 pasa a 32×32.
 make remaster ROM="..." PACK_SCALE=8
 ```
 
-Hay que generar el pack 8× desde el principio: las alturas se calculan a la
-misma escala que el color. 8× produce tiles de 64×64 en páginas de textura
-(`pack.json` + `pages/`), con sus páginas de altura (`pages/height_*.png`),
+8× produce tiles de 64×64 en páginas de textura (`pack.json` + `pages/`),
 pensado para 1440p y 4K. La carga es perezosa: el emulador solo decodifica las
 páginas que necesita.
 
@@ -85,44 +79,17 @@ Cada composite se reduce primero a la **rejilla real de píxeles de juego** (por
 
 1. **Campo de distancia con signo (SDF)** por cada color de la paleta. Un contorno deja de ser una lista de escalones y pasa a ser una isolínea: la frontera entre distancia positiva y negativa.
 2. **Antialiasing por cobertura**: el color se mezcla según `clip(sdf·escala + 0,5, 0, 1)`. En vez de píxeles encendidos o apagados hay cobertura fraccionaria, así que el borde queda limpio a cualquier escala.
-3. **Albedo plano**: el color de salida es el color de la paleta (con el grado de cine y el grano), **sin luz horneada**. Así la iluminación se puede cambiar sin volver a generar el pack.
-4. **Mapa de altura**: manda la distancia a la silueta de la pieza (volumen exterior) y los bordes de color añaden un relieve suave. Se normaliza por el radio del bisel y se guarda como un PNG en escala de grises paralelo al color, con el mismo layout (`pages/height_XXX.png` en los packs paginados).
-5. **Grano**: un ruido de valor suave modula el albedo para que las zonas grandes no queden muertas.
+3. **Albedo plano**: el color de salida es el color de la paleta (con el grado de cine y el grano), sin luz horneada. El emulador le añade el cielo y el postprocesado.
+4. **Grano**: un ruido de valor suave modula el albedo para que las zonas grandes no queden muertas.
 
-Los tiles sueltos se procesan con el borde replicado, de modo que el bisel no dibuja una línea de rejilla en cada unión.
 
-## Iluminación en el emulador
 
-El pack lleva dos capas: color (albedo) y altura. La luz de altura es
-**opcional y viene apagada por defecto**: el HD se ve como albedo plano con el
-cielo moderno, que es el modo más limpio y el que evita las costuras de altura.
-Pulsa **F6** para activar el volumen. Con la luz activa, el emulador compone las
-dos capas con la misma geometría y un shader
-(`pkg/video/shaders/heightlight.kage`) reconstruye la normal con el gradiente de
-altura:
+## Cielo y paleta
 
-- **Luz direccional** desde arriba a la izquierda, igual para fondos y sprites;
-- **especular** ajustable y **contraluz** en los bordes inclinados;
-- **oclusión de grietas**: en el interior de las piezas, donde el gradiente es
-  fuerte, se oscurece un poco; el borde exterior no se trata como una grieta
-  (si no, cada contorno salía con una línea negra);
-- **sombra proyectada** de los sprites sobre el fondo, desplazada hacia abajo a
-  la derecha y con penumbra de cuatro muestras. Solo proyectan sombra los
-  sprites con píxeles transparentes; un tile opaco no dibuja un rectángulo.
-
-La referencia de la luz es la superficie plana: una zona sin altura conserva su
-color exacto en vez de oscurecerse. Eso incluye el fondo del VDP y los tiles en
-blanco que el juego usa como cielo.
-
-Al empaquetar, la altura sale del composite cuando cubre el tile (la silueta es
-coherente entre sus propios tiles); los tiles sin composite usan su altura
-individual. Los píxeles del color del cielo se aplanan a altura 0 para que las
-nubes y el terreno queden por encima y su borde no se lea como una grieta.
-
-El pack guarda además `palette.json` con los 64 colores CRAM ya graduados. El
-cielo de Alex Kidd no es el registro de fondo: son tiles vacíos que el emulador
-pinta con el color 0 de la paleta. Sin ese mapa, el cielo se quedaba en azul
-eléctrico mientras el resto de la escena usaba la paleta de cine.
+El pack guarda `palette.json` con los 64 colores CRAM ya graduados. El cielo de
+Alex Kidd no es el registro de fondo: son tiles vacíos que el emulador pinta con
+el color 0 de la paleta. Sin ese mapa, el cielo se quedaba en azul eléctrico
+mientras el resto de la escena usaba la paleta de cine.
 
 ### Cielo moderno
 
@@ -148,18 +115,7 @@ go run ./cmd/preview -frames 900 -filter modern -hd -nosky -out plano.png "roms/
 ```
 
 El cielo se aplica solo con pack HD y los filtros **REMASTER 2026** o **CRT**;
-**SUAVIZADO** deja ver el albedo plano. La luz de altura es independiente de eso:
-**F6** la enciende o apaga.
-
-Para probar otra dirección de luz sin tocar código:
-
-```bash
-go run ./cmd/preview -frames 900 -filter modern -hd \
-  -light "-0.38,-0.72" -out preview.png "roms/juego.sms"
-```
-
-`-light` son los dos componentes de la dirección en pantalla (x derecha, y
-abajo); `-noheight` desactiva el pase para ver el albedo.
+**SUAVIZADO** deja ver el albedo plano.
 
 ## Ajustes
 
@@ -179,9 +135,8 @@ make pack ROM="..."
 ## Acabado cinematográfico
 
 `make cinematic` usa el mismo motor, pero traduce la paleta de la consola a una
-paleta de cine antes de iluminar: pelo castaño, piel tostada, blanco hueso,
-carmesí y azul acero. El dibujo y las sombras se calculan sobre esos colores,
-así que el volumen sigue siendo geométrico.
+paleta de cine antes de aplicar el color: pelo castaño, piel tostada, blanco
+hueso, carmesí y azul acero.
 
 ```bash
 make cinematic ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
@@ -199,11 +154,7 @@ saturación, sombras frías y luces cálidas).
 | `CINE_LIMIT` | `0` | Máximo de composites; `0` procesa todos. |
 | `CINE_SKIP` | `0` | `1` conserva los PNG que ya existen. |
 | `CINE_TILES` | `1` | `0` no regenera el fallback por tile. |
-| `CINE_BEVEL` | `1.8` | Radio del bisel en píxeles de juego (altura/F6 y horneado). |
-| `CINE_LIGHT` | `315,48` | Azimut y elevación de la luz. |
 | `CINE_NOISE` | `0.03` | Amplitud del grano. |
-| `CINE_SHADED` | `0` | `1` hornea la luz en el PNG en vez de dejar albedo plano. |
-| `CINE_HEIGHTS` | `1` | `0` no genera mapa de altura; con F6 el shader usa el relieve por gradiente. |
 
 La paleta está en `tools/grades.py`; cambiar un color allí y volver a lanzar el
 comando es todo lo necesario para probar otra dirección.
@@ -215,12 +166,10 @@ comando es todo lo necesario para probar otra dirección.
 | `original/` | Extracción de la ROM: tiles, manifiesto y escenas. No la edites. |
 | `remaster_workspace/input/objects/` | Composites de partida, uno por objeto. Son la entrada del vectorizador. |
 | `remaster_workspace/objects/` | Resultado vectorizado. Aquí puedes poner tus propios PNG. |
-| `remaster_workspace/heights/objects/` | Mapa de altura de cada composite, con el mismo tamaño. |
 | `remaster_workspace/tile_fallback/` | Resultado por tile, para lo que no cubre ningún composite. |
-| `remaster_workspace/heights/tile_fallback/` | Altura de esos tiles sueltos. |
 | `remaster_workspace/tiles/` | Overrides manuales de un tile suelto. Tienen prioridad sobre todo lo demás. |
 | `remaster_workspace/scenes/` | Vistas de nivel para reconocer dónde aparece cada gráfico. Solo referencia. |
-| `hd/` | El pack que consume el emulador: color, alturas y `palette.json` con el fondo graduado. |
+| `hd/` | El pack que consume el emulador: color y `palette.json` con el fondo graduado. |
 
 ## Prioridad al empaquetar
 
@@ -250,10 +199,11 @@ make preview ROM="..." PREVIEW_FILTER=modern PREVIEW_HD=true
 O dentro del juego:
 
 - **F10** alterna original y remaster.
-- **F6** enciende o apaga la luz de altura (útil si el equipo va justo).
 - **F1** recorre los filtros de post-proceso. **REMASTER 2026** es el más
-  completo (luz, cielo y bloom); **SUAVIZADO** es el más ligero.
+  completo (cielo y bloom); **SUAVIZADO** es el más ligero.
 - **P** o **Enter** pulsa PAUSE/START (en Alex Kidd abre el mapa e inventario).
+- Al conectar un mando USB/Bluetooth, el menú muestra el modelo y el juego avisa
+  con un OSD al conectar o desconectar.
 
 Para capturar esa pantalla sin abrir la ventana, `cmd/preview` acepta `-pause`
 con el frame en el que quieres pulsar PAUSE:
@@ -265,13 +215,10 @@ go run ./cmd/preview -frames 900 -pause 600 -filter modern -hd \
 
 ## Límites conocidos
 
-- Un sprite de 35×48 no contiene un rostro: el resultado será limpio y con volumen, pero no fotorrealista.
-- Las esquinas muy agudas se redondean ligeramente; `CINE_BEVEL=0.8` reduce el efecto.
-- La luz de altura es un gradiente 2.5D y es opcional: no hay oclusión entre
-  objetos distintos ni sombras proyectadas del escenario, solo la sombra suave
-  de los sprites cuando está activa. El modo por defecto (albedo plano + cielo)
-  es el más limpio y el más rápido.
-- Un pack antiguo sin `heights.png`/`palette.json` sigue funcionando; con F6
-  usa el relieve por gradiente y el fondo queda sin graduar.
+- Un sprite de 35×48 no contiene un rostro: el resultado será limpio, pero no fotorrealista.
+- El arte es plano: no hay luz volumétrica ni sombras proyectadas; el relieve
+  se sustituye por la limpieza del vectorizado y el cielo moderno.
+- Un pack antiguo sin `palette.json` sigue funcionando, pero el fondo queda sin
+  graduar.
 - El texto y el HUD no se vectorizan aparte: si aparecen en un composite, se suavizan como cualquier otra región.
 - Los packs 8× ocupan bastante más en disco y en memoria de vídeo.

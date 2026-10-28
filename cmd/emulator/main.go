@@ -411,7 +411,6 @@ type game struct {
 	fullscreen bool
 	crop       bool
 	hdMode     bool
-	hdLight    bool
 	dumper     *LiveDumper
 	audioBuf   *audioBuffer
 	dsp        AudioDSP
@@ -423,7 +422,6 @@ type game struct {
 	// Pipeline de post-procesado compartido con Android.
 	pipeline *video.Pipeline
 	hdTarget *ebiten.Image
-	hdHeight *ebiten.Image
 
 	// Filtros de post-procesado
 	videoFilter VideoFilter
@@ -432,6 +430,10 @@ type game struct {
 	// Notificación en pantalla (OSD)
 	osdText  string
 	osdTimer int
+
+	// Mandos conectados y su modelo (hotplug).
+	padIDs   []ebiten.GamepadID
+	padNames map[ebiten.GamepadID]string
 
 	// Textura temporal del upscaler EPX.
 	epxImg *ebiten.Image
@@ -462,11 +464,64 @@ func (g *game) showOSD(msg string) {
 	g.osdTimer = 110 // ~1.8 segundos a 60 FPS
 }
 
+func shortPadName(name string) string {
+	runes := []rune(name)
+	if len(runes) > 40 {
+		return string(runes[:37]) + "..."
+	}
+	return name
+}
+
+// detectGamepads follows Ebiten's hotplug list and announces new or removed
+// controllers with their model name. It runs in the menu and in game.
+func (g *game) detectGamepads() {
+	if g.padNames == nil {
+		g.padNames = make(map[ebiten.GamepadID]string)
+	}
+	ids := ebiten.AppendGamepadIDs(nil)
+	seen := make(map[ebiten.GamepadID]bool, len(ids))
+	for index, id := range ids {
+		seen[id] = true
+		if _, known := g.padNames[id]; known {
+			continue
+		}
+		name := strings.TrimSpace(ebiten.GamepadName(id))
+		if name == "" {
+			name = "Mando USB/Bluetooth"
+		}
+		g.padNames[id] = name
+		g.showOSD(fmt.Sprintf("🎮 MANDO %d DETECTADO: %s", index+1, shortPadName(name)))
+	}
+	for id, name := range g.padNames {
+		if seen[id] {
+			continue
+		}
+		delete(g.padNames, id)
+		g.showOSD("🔌 MANDO DESCONECTADO: " + shortPadName(name))
+	}
+	g.padIDs = ids
+}
+
+func (g *game) gamepadStatus() string {
+	if len(g.padIDs) == 0 {
+		return "MANDO: ninguno  ·  conecta uno USB/Bluetooth"
+	}
+	name := g.padNames[g.padIDs[0]]
+	if name == "" {
+		name = "Mando USB/Bluetooth"
+	}
+	if len(g.padIDs) == 1 {
+		return "MANDO: " + shortPadName(name)
+	}
+	return fmt.Sprintf("MANDOS: %d  ·  %s", len(g.padIDs), shortPadName(name))
+}
+
 func (g *game) Update() error {
 	g.frames++
 	if g.osdTimer > 0 {
 		g.osdTimer--
 	}
+	g.detectGamepads()
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyF11) {
 		g.fullscreen = !g.fullscreen
@@ -511,17 +566,6 @@ func (g *game) Update() error {
 			}
 		} else {
 			g.showOSD("PACK HD NO DISPONIBLE PARA ESTE JUEGO")
-		}
-	}
-
-	// F6: luz de altura HD. Desactivarla aligera mucho el pase de relieve en
-	// equipos modestos y sirve para comparar el volumen con el albedo plano.
-	if inpututil.IsKeyJustPressed(ebiten.KeyF6) {
-		g.hdLight = !g.hdLight
-		if g.hdLight {
-			g.showOSD("LUZ HD: ACTIVADA (VOLUMEN)")
-		} else {
-			g.showOSD("LUZ HD: DESACTIVADA (ALBEDO + CIELO)")
 		}
 	}
 
@@ -774,6 +818,8 @@ func (g *game) drawMenu(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, "SEGA", 42, 19)
 	ebitenutil.DebugPrintAt(screen, "GOSMS  •  MASTER SYSTEM", 106, 19)
 
+	ebitenutil.DebugPrintAt(screen, g.gamepadStatus(), 24, 62)
+
 	authorBadge := fmt.Sprintf("DEV: %s", strings.ToUpper(authorName))
 	authorX := sw - len(authorBadge)*6 - 36
 	vector.DrawFilledRect(screen, float32(authorX-8), 13, float32(len(authorBadge)*6+24), 28, color.RGBA{22, 27, 36, 255}, true)
@@ -944,7 +990,7 @@ func main() {
 		audioFilter: AudioFilterWarm, // Por defecto altavoz cálido analógico
 		pipeline:    video.New(),
 		hdMode:      *hd,
-		hdLight:     false,
+		padNames:    make(map[ebiten.GamepadID]string),
 	}
 
 	if flag.NArg() > 0 {

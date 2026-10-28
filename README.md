@@ -39,7 +39,7 @@ Diseñado desde cero con foco en la precisión de sincronismo NTSC (≈59.9227 F
 | **Memoria & Mapper** | Gestión de bancos de cartucho Sega (`$FFFD-$FFFF`), RAM de sistema de 8 KB con espejos completos y soporte de persistencia de partidas guardadas con batería SRAM (`.sav`) y snapshots en caliente (`.state`). |
 | **PSG SN76489** | 3 canales de onda cuadrada independientes y generador de ruido blanco/periódico. Sincronización libre de clics a 48.000 Hz acoplada al renderizado del VDP. |
 | **Audio DSP** | Procesamiento digital de señal en tiempo real: filtro paso bajo analógico IIR (~5.5 kHz), dimensionalidad 3D pseudo-estéreo (algoritmo Haas con retardo de 9 ms) y reverberación acústica de recreativa. |
-| **Shaders & Vídeo** | Pipeline multi-pase con Scale2x EPX, rejilla CRT, bloom multinivel y color grading. El pack HD sustituye tiles por arte remasterizado 4× u 8×, con cielo moderno y luz de altura opcional (**F6**), y puede combinarse con el postprocesado. |
+| **Shaders & Vídeo** | Pipeline multi-pase con Scale2x EPX, rejilla CRT, bloom multinivel y color grading. El pack HD sustituye tiles por arte remasterizado 4× u 8×, con un cielo moderno con degradado y halo de sol. |
 
 ---
 
@@ -55,7 +55,6 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 | **Botón PAUSE / START (Consola)** | `P` o `Enter` | — | Botón `Start` | Botón `[ PAUSE ]` |
 | **Cambiar Filtro de Vídeo** | `F1` o `V` | — | — | — |
 | **Alternar HD / Original** | `F10` | — | — | — |
-| **Luz de altura HD (opcional)** | `F6` | — | — | — |
 | **Cambiar Filtro de Audio** | `F2` o `B` | — | — | — |
 | **Guardar Partida Rápida** | `F5` | — | — | — |
 | **Cargar Partida Rápida** | `F8` | — | — | — |
@@ -63,6 +62,8 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 | **Volver al Menú / Salir** | `Esc` | — | — | — |
 
 > En Alex Kidd, **PAUSE / START** (`P` o `Enter`, o `Start` en el mando) abre el mapa e inventario del juego. `Esc` vuelve al menú del emulador.
+
+> Los mandos USB/Bluetooth se detectan en caliente: el menú muestra el modelo conectado y, en partida, aparece un aviso al conectar o desconectar.
 
 ---
 
@@ -95,7 +96,7 @@ make audit
 
 ### Remasterizar una ROM
 
-El remaster es **matemático, sin IA**: vectoriza cada objeto con campos de distancia, aplica antialiasing real y guarda un mapa de altura para la iluminación **opcional**. Por defecto el emulador muestra el **albedo plano con el cielo moderno**; con **F6** activas la iluminación por altura (luz direccional, especular, contraluz y sombra de los sprites). No descarga modelos y es determinista.
+El remaster es **matemático, sin IA**: vectoriza cada objeto con campos de distancia, aplica antialiasing real y deja el **albedo plano** con la paleta de cine. El emulador le añade el **cielo moderno** (degradado y halo de sol) y el postprocesado. No descarga modelos y es determinista.
 
 Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaqueta):
 
@@ -105,29 +106,25 @@ make remaster ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 
 Necesita Python 3 con `numpy` y `Pillow`. `make setup` crea `.venv-remaster/` con ambas.
 
-Por defecto se genera un pack 4× (cada tile de 8×8 pasa a 32×32). Para 1440p o 4K genera el pack 8× desde el principio, porque las alturas se calculan a la misma escala que el color:
+Por defecto se genera un pack 4× (cada tile de 8×8 pasa a 32×32). Para 1440p o 4K puedes generar el pack 8×:
 
 ```bash
 make remaster ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms" PACK_SCALE=8
 ```
 
-El pack 8× se divide automáticamente en páginas de color y de altura (`pack.json` + `pages/`), con carga perezosa.
+El pack 8× se divide automáticamente en páginas de color (`pack.json` + `pages/`), con carga perezosa.
 
 Puedes ajustar el acabado sin volver a extraer:
 
 ```bash
-make cinematic ROM="..." CINE_BEVEL=2.2 CINE_LIGHT=315,48 CINE_NOISE=0.03
+make cinematic ROM="..." CINE_NOISE=0.03
 make pack ROM="..."
 make run ROM="..."
 ```
 
-`CINE_BEVEL` es el radio del bisel en píxeles de juego (1.8 por defecto). Afecta al mapa de altura (F6) y al horneado con `CINE_SHADED=1`; el albedo plano por defecto no cambia. Súbelo para un volumen más redondo y bájalo para un acabado más plano.
-
 El acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí) ya es el que aplica `make remaster`. La paleta está en `tools/grades.py`: cambia un color allí, vuelve a lanzar `make cinematic` y `make pack`, y el emulador graduará también el fondo y los tiles sin remasterizar con `hd/palette.json`.
 
-El albedo plano es el modo por defecto; para hornear la luz en el PNG usa `CINE_SHADED=1`. Para empaquetar sin mapa de altura usa `CINE_HEIGHTS=0` (si activas F6, el shader usa el relieve por gradiente).
-
-El pack lleva color y altura en paralelo. Por defecto el HD se ve como **albedo plano + cielo moderno**; la luz de altura es opcional y se activa con **F6**. El filtro **REMASTER 2026** añade bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. Para probar otra dirección de luz, `cmd/preview` acepta `-light "x,y"`, `-noheight` y `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva luz, cielo y bloom.
+El pack lleva el albedo y la paleta. El filtro **REMASTER 2026** añade bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. Para comparar sin el cielo, `cmd/preview` acepta `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva cielo y bloom.
 
 La extracción agrupa bloques de fondo de 8×8 tiles para vectorizar escenarios completos en vez de tiles aislados. Usa `BG_GROUP=0` para desactivarlos o `BG_PROTECT=3` para proteger más filas del HUD.
 

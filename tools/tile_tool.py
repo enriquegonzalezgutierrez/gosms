@@ -416,6 +416,7 @@ def pack(rom_name):
     covered_tiles = fallback_tiles | set(object_tiles) | override_tiles
     nearest_count = max(0, len(tiles) - len(covered_tiles))
     coverage = len(covered_tiles) * 100.0 / max(1, len(tiles))
+    has_heights = any(height is not None for height in heights.values())
 
     if WRITE_PAGES:
         cols_per_page = max(1, PAGE_SIZE // CELL)
@@ -424,7 +425,7 @@ def pack(rom_name):
         placed = [(item, remastered[item["index"]]) for item in tiles if item["index"] in remastered]
         page_count = max(1, math.ceil(len(placed) / capacity))
         pages = [Image.new("RGBA", (PAGE_SIZE, PAGE_SIZE), (0, 0, 0, 0)) for _ in range(page_count)]
-        height_pages = [Image.new("L", (PAGE_SIZE, PAGE_SIZE), 0) for _ in range(page_count)]
+        height_pages = [Image.new("L", (PAGE_SIZE, PAGE_SIZE), 0) for _ in range(page_count)] if has_heights else None
         page_tiles = []
         page_names = []
         height_page_names = []
@@ -439,9 +440,10 @@ def pack(rom_name):
             x = col * CELL
             y = row * CELL
             paste_with_gutter(pages[page_index], tile, x, y)
-            height_tile = heights.get(item["index"])
-            if height_tile is not None:
-                paste_with_gutter(height_pages[page_index], height_tile, x, y)
+            if height_pages is not None:
+                height_tile = heights.get(item["index"])
+                if height_tile is not None:
+                    paste_with_gutter(height_pages[page_index], height_tile, x, y)
             page_tiles.append({
                 "hash": item["hash"],
                 "page": page_index,
@@ -456,9 +458,10 @@ def pack(rom_name):
             name = f"pages/page_{page_index:03d}.png"
             page.save(os.path.join(hd_dir, name))
             page_names.append({"file": name, "width": PAGE_SIZE, "height": PAGE_SIZE})
-            hname = f"pages/height_{page_index:03d}.png"
-            height_pages[page_index].save(os.path.join(hd_dir, hname))
-            height_page_names.append({"file": hname, "width": PAGE_SIZE, "height": PAGE_SIZE})
+            if height_pages is not None:
+                hname = f"pages/height_{page_index:03d}.png"
+                height_pages[page_index].save(os.path.join(hd_dir, hname))
+                height_page_names.append({"file": hname, "width": PAGE_SIZE, "height": PAGE_SIZE})
 
         pack_document = {
             "version": 2,
@@ -466,11 +469,12 @@ def pack(rom_name):
             "scale": SCALE,
             "tile_size": 8,
             "pages": page_names,
-            "height_pages": height_page_names,
             "tiles": page_tiles,
             "objects": document.get("objects", []),
             "scenes": document.get("scenes", []),
         }
+        if height_page_names:
+            pack_document["height_pages"] = height_page_names
         with open(os.path.join(hd_dir, "pack.json"), "w", encoding="utf-8") as output:
             json.dump(pack_document, output, indent=2, ensure_ascii=False)
 
@@ -502,15 +506,19 @@ def pack(rom_name):
 
         sheet.save(os.path.join(hd_dir, "spritesheet.png"))
 
-        height_sheet = Image.new("L", sheet.size, 0)
-        for item in tiles:
-            height_tile = heights.get(item["index"])
-            if height_tile is None:
-                continue
-            hx = (item["index"] % cols) * CELL
-            hy = (item["index"] // cols) * CELL
-            paste_with_gutter(height_sheet, height_tile, hx, hy)
-        height_sheet.save(os.path.join(hd_dir, "heights.png"))
+        height_path = os.path.join(hd_dir, "heights.png")
+        if has_heights:
+            height_sheet = Image.new("L", sheet.size, 0)
+            for item in tiles:
+                height_tile = heights.get(item["index"])
+                if height_tile is None:
+                    continue
+                hx = (item["index"] % cols) * CELL
+                hy = (item["index"] // cols) * CELL
+                paste_with_gutter(height_sheet, height_tile, hx, hy)
+            height_sheet.save(height_path)
+        elif os.path.exists(height_path):
+            os.remove(height_path)
         with open(os.path.join(hd_dir, "manifest.json"), "w", encoding="utf-8") as output:
             json.dump(document, output, indent=2, ensure_ascii=False)
         print(f"✨ Pack HD v1 listo: {len(remastered)}/{len(tiles)} tiles en {hd_dir}/spritesheet.png (escala {SCALE}x)")
