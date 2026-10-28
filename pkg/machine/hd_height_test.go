@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"image/color"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,5 +54,25 @@ func TestLoadHDPackHeights(t *testing.T) {
 				t.Fatalf("GetHDHeight should return nil without a height channel")
 			}
 		})
+	}
+}
+
+// TestGradeColor checks the pack palette translation used by the VDP backdrop
+// and by the dynamic fallback tiles.
+func TestGradeColor(t *testing.T) {
+	hd := &HDRenderer{}
+	blue := color.RGBA{0, 0, 255, 255}
+	if got := hd.GradeColor(blue); got != blue {
+		t.Fatalf("without palette GradeColor changed %v to %v", blue, got)
+	}
+
+	steel := color.RGBA{52, 99, 156, 255}
+	hd.Palette = map[color.RGBA]color.RGBA{blue: steel}
+	if got := hd.GradeColor(blue); got != steel {
+		t.Fatalf("GradeColor(blue) = %v, want %v", got, steel)
+	}
+	unknown := color.RGBA{85, 0, 0, 255}
+	if got := hd.GradeColor(unknown); got != unknown {
+		t.Fatalf("GradeColor should pass unknown colours through, got %v", got)
 	}
 }

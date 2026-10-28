@@ -141,7 +141,8 @@ func (g *game) pipelineOptions() video.Options {
 	}
 	if g.videoFilter == VideoFilterScanlines {
 		// Keep the old scanline filter semantics: only the grid, no bloom or
-		// colour grading. This makes the two modes easy to compare.
+		// colour grading. The height lighting stays because the HD albedo is
+		// flat and would look dead without it.
 		opts.Bloom = 0
 		opts.Sharpness = 0
 		opts.Saturation = 1
