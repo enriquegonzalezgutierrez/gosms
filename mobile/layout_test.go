@@ -26,6 +26,9 @@ func TestLauncherLayoutFitsCard(t *testing.T) {
 		if loaded.play.x < loaded.card.x || loaded.change.x+loaded.change.w > loaded.card.x+loaded.card.w {
 			t.Fatalf("%v: loaded buttons escape the card", size)
 		}
+		if loaded.help.w <= 0 || loaded.help.h <= 0 {
+			t.Fatalf("%v: help button has no size", size)
+		}
 	}
 }
 

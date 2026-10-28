@@ -7,7 +7,8 @@ import (
 )
 
 type Config struct {
-	RomsDir string `json:"roms_dir"`
+	RomsDir      string `json:"roms_dir"`
+	TutorialSeen bool   `json:"tutorial_seen"`
 }
 
 func getConfigPath() string {

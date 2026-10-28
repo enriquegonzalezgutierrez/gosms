@@ -263,12 +263,25 @@ func readPad(keys []keyBit, padIndex int) byte {
 }
 
 func isGamepadButtonJustPressed(b ebiten.StandardGamepadButton) bool {
-	var ids []ebiten.GamepadID
-	ids = ebiten.AppendGamepadIDs(ids)
-	if len(ids) > 0 {
-		return inpututil.IsStandardGamepadButtonJustPressed(ids[0], b)
+	for _, id := range ebiten.AppendGamepadIDs(nil) {
+		if inpututil.IsStandardGamepadButtonJustPressed(id, b) {
+			return true
+		}
 	}
 	return false
+}
+
+func gamepadAxis(axis ebiten.StandardGamepadAxis) int {
+	for _, id := range ebiten.AppendGamepadIDs(nil) {
+		value := ebiten.StandardGamepadAxisValue(id, axis)
+		if value > 0.6 {
+			return 1
+		}
+		if value < -0.6 {
+			return -1
+		}
+	}
+	return 0
 }
 
 // ---------- Metadatos de ROM y Miniaturas Inteligentes ----------
@@ -435,6 +448,11 @@ type game struct {
 	padIDs   []ebiten.GamepadID
 	padNames map[ebiten.GamepadID]string
 
+	// Ayuda/tutorial de controles.
+	showHelp  bool
+	menuAxisX int
+	menuAxisY int
+
 	// Textura temporal del upscaler EPX.
 	epxImg *ebiten.Image
 	epxBuf []byte
@@ -462,6 +480,15 @@ func (g *game) loadGame(path string) error {
 func (g *game) showOSD(msg string) {
 	g.osdText = msg
 	g.osdTimer = 110 // ~1.8 segundos a 60 FPS
+}
+
+func (g *game) closeHelp() {
+	g.showHelp = false
+	cfg := loadConfig()
+	if !cfg.TutorialSeen {
+		cfg.TutorialSeen = true
+		saveConfig(cfg)
+	}
 }
 
 func shortPadName(name string) string {
@@ -578,6 +605,26 @@ func (g *game) Update() error {
 		g.showOSD(fmt.Sprintf("AUDIO: %s", audioFilterNames[g.audioFilter]))
 	}
 
+	if g.state != StateLoading {
+		if inpututil.IsKeyJustPressed(ebiten.KeyF12) || inpututil.IsKeyJustPressed(ebiten.KeyH) {
+			if g.showHelp {
+				g.closeHelp()
+			} else {
+				g.showHelp = true
+			}
+		}
+		if g.showHelp {
+			if inpututil.IsKeyJustPressed(ebiten.KeyEscape) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonRightBottom) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonRightRight) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonCenterRight) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonCenterLeft) {
+				g.closeHelp()
+			}
+			return nil
+		}
+	}
+
 	switch g.state {
 	case StateLoading:
 		select {
@@ -594,7 +641,9 @@ func (g *game) Update() error {
 		}
 
 	case StateMenu:
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) ||
+			isGamepadButtonJustPressed(ebiten.StandardGamepadButtonRightRight) ||
+			isGamepadButtonJustPressed(ebiten.StandardGamepadButtonCenterLeft) {
 			return ebiten.Termination
 		}
 		// Tecla F3 para cambiar/recargar carpeta de roms
@@ -621,16 +670,41 @@ func (g *game) Update() error {
 					g.roms[g.selected].Thumbnail = thumb
 				}
 			}
+			axisX := gamepadAxis(ebiten.StandardGamepadAxisLeftStickHorizontal)
+			axisY := gamepadAxis(ebiten.StandardGamepadAxisLeftStickVertical)
+			dx, dy := 0, 0
 			if inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) ||
 				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonLeftRight) {
-				g.selected = (g.selected + 1) % len(g.roms)
+				dx++
 			}
 			if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyA) ||
 				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonLeftLeft) {
+				dx--
+			}
+			if dx == 0 && axisX != 0 && axisX != g.menuAxisX {
+				dx = axisX
+			}
+			if inpututil.IsKeyJustPressed(ebiten.KeyDown) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonLeftBottom) {
+				dy++
+			}
+			if inpututil.IsKeyJustPressed(ebiten.KeyUp) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonLeftTop) {
+				dy--
+			}
+			if dy == 0 && axisY != 0 && axisY != g.menuAxisY {
+				dy = axisY
+			}
+			g.menuAxisX, g.menuAxisY = axisX, axisY
+			if dx > 0 || dy > 0 {
+				g.selected = (g.selected + 1) % len(g.roms)
+			}
+			if dx < 0 || dy < 0 {
 				g.selected = (g.selected - 1 + len(g.roms)) % len(g.roms)
 			}
 			if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) ||
-				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonRightBottom) {
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonRightBottom) ||
+				isGamepadButtonJustPressed(ebiten.StandardGamepadButtonCenterRight) {
 				if err := g.loadGame(g.roms[g.selected].Path); err != nil {
 					log.Printf("Error cargando juego: %v", err)
 				} else {
@@ -819,6 +893,9 @@ func (g *game) drawMenu(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, "GOSMS  •  MASTER SYSTEM", 106, 19)
 
 	ebitenutil.DebugPrintAt(screen, g.gamepadStatus(), 24, 62)
+	filterText := fmt.Sprintf("VÍDEO: %s   ·   AUDIO: %s",
+		videoFilterNames[g.videoFilter], audioFilterNames[g.audioFilter])
+	ebitenutil.DebugPrintAt(screen, filterText, 24, 80)
 
 	authorBadge := fmt.Sprintf("DEV: %s", strings.ToUpper(authorName))
 	authorX := sw - len(authorBadge)*6 - 36
@@ -861,14 +938,75 @@ func (g *game) drawMenu(screen *ebiten.Image) {
 	vector.DrawFilledRect(screen, 0, float32(sh)-barH, float32(sw), barH, color.RGBA{9, 12, 18, 255}, true)
 	vector.DrawFilledRect(screen, 0, float32(sh)-barH, float32(sw), 1, color.RGBA{0, 140, 255, 180}, true)
 
-	hint1 := "[ ENTER ] Jugar   [ F10 ] Conmutar HD   [ F9 ] Grabar Dump HD (En Vivo)   [ F7 ] Captura IA"
+	hint1 := "[ ENTER / A ] Jugar    [ D-PAD / STICK ] Elegir    [ F12 ] Controles    [ F11 ] Pantalla"
 	ebitenutil.DebugPrintAt(screen, hint1, sw/2-len(hint1)*3, sh-50)
 
-	hint2 := "[ < / > ] Seleccionar   [ F3 ] Cambiar Carpeta ROMs   [ F1 ] Vídeo   [ F2 ] Audio   [ F11 ] Pantalla"
+	hint2 := "[ F3 ] Carpeta ROMs    [ F1 ] Vídeo    [ F2 ] Audio    [ ESC ] Salir"
 	ebitenutil.DebugPrintAt(screen, hint2, sw/2-len(hint2)*3, sh-32)
 
 	credit := fmt.Sprintf("gosms  ©  Creado por %s", authorName)
 	ebitenutil.DebugPrintAt(screen, credit, sw/2-len(credit)*3, sh-16)
+}
+
+func (g *game) drawHelp(screen *ebiten.Image) {
+	sw := float64(screen.Bounds().Dx())
+	sh := float64(screen.Bounds().Dy())
+
+	vector.DrawFilledRect(screen, 0, 0, float32(sw), float32(sh), color.RGBA{0, 0, 0, 210}, true)
+	w := math.Min(sw-60, 700)
+	h := math.Min(sh-60, 440)
+	x := (sw - w) / 2
+	y := (sh - h) / 2
+
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{16, 22, 34, 250}, true)
+	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 2, color.RGBA{0, 170, 255, 240}, true)
+
+	title := "CONTROLES Y ATAJOS"
+	ebitenutil.DebugPrintAt(screen, title, int(x+w/2)-len(title)*3, int(y+16))
+	subtitle := "Tutorial de primer arranque · F12 / H para volver a abrirlo"
+	ebitenutil.DebugPrintAt(screen, subtitle, int(x+w/2)-len(subtitle)*3, int(y+34))
+
+	drawLine := func(cx, cy float64, key, desc string) {
+		text := fmt.Sprintf("%-18s %s", key, desc)
+		ebitenutil.DebugPrintAt(screen, text, int(cx), int(cy))
+	}
+
+	col1 := x + 28
+	col2 := x + w/2 + 8
+	y0 := y + 66
+	ebitenutil.DebugPrintAt(screen, "JUEGO", int(col1), int(y0))
+	ebitenutil.DebugPrintAt(screen, "MENÚ", int(col2), int(y0))
+	left := [][2]string{
+		{"Flechas", "Mover"},
+		{"Z / Espacio", "Botón 1"},
+		{"X", "Botón 2"},
+		{"P / Enter", "PAUSE / START"},
+		{"F5 / F8", "Guardar / cargar"},
+		{"F1 / F2", "Vídeo / audio"},
+		{"F10", "HD / original"},
+		{"F11", "Pantalla completa"},
+		{"Esc", "Volver al menú"},
+	}
+	right := [][2]string{
+		{"Enter / A / Start", "Jugar"},
+		{"D-pad / stick", "Elegir juego"},
+		{"F3", "Carpeta de ROMs"},
+		{"R", "Regenerar carátula"},
+		{"F12 / H", "Abrir / cerrar ayuda"},
+		{"B / Back / Esc", "Salir"},
+		{"F9 / F7", "Herramientas de desarrollo"},
+	}
+	for i, line := range left {
+		drawLine(col1, y0+20+float64(i)*18, line[0], line[1])
+	}
+	for i, line := range right {
+		drawLine(col2, y0+20+float64(i)*18, line[0], line[1])
+	}
+
+	pad := g.gamepadStatus()
+	ebitenutil.DebugPrintAt(screen, pad, int(x+28), int(y+h-44))
+	closeText := "F12 / A / Start / Enter / Esc: cerrar"
+	ebitenutil.DebugPrintAt(screen, closeText, int(x+w/2)-len(closeText)*3, int(y+h-24))
 }
 
 func (g *game) Draw(screen *ebiten.Image) {
@@ -879,6 +1017,9 @@ func (g *game) Draw(screen *ebiten.Image) {
 
 	case StateMenu:
 		g.drawMenu(screen)
+		if g.showHelp {
+			g.drawHelp(screen)
+		}
 		return
 	}
 
@@ -916,6 +1057,10 @@ func (g *game) Draw(screen *ebiten.Image) {
 		if g.osdTimer == 0 {
 			g.showOSD("ERROR DE POSTPROCESADO: " + err.Error())
 		}
+	}
+
+	if g.showHelp {
+		g.drawHelp(screen)
 	}
 
 	// 3. Notificación OSD emergente al cambiar filtros (fondo translúcido + borde neón)
@@ -1003,6 +1148,7 @@ func main() {
 	} else {
 		cfg := loadConfig()
 		*romsDir = cfg.RomsDir
+		g.showHelp = !cfg.TutorialSeen
 		g.roms = nil
 		g.romFiles = findRomFiles(*romsDir)
 		g.loadChan = make(chan RomItem, 50)

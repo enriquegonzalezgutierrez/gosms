@@ -66,6 +66,8 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 
 > Los mandos USB/Bluetooth se detectan en caliente: el menú muestra el modelo conectado y, en partida, aparece un aviso al conectar o desconectar.
 
+> El menú incluye **F12 / H → Controles** y un tutorial de primer arranque. Los ZIP de release incluyen `CONTROLES.md`.
+
 ---
 
 ## 🚀 Compilación y Ejecución
@@ -158,6 +160,7 @@ La APK arranca en un **lanzador con la estética del escritorio**. Como Android 
 - **MENÚ** (en el HUD) o el botón **atrás** vuelven al lanzador; desde el lanzador, atrás sale de la app.
 - La última ROM se recuerda entre arranques (permiso persistente del selector).
 - El HUD táctil es responsive: D-pad, botones 1/2, PAUSA y MENÚ, con la misma paleta azul/neón del escritorio.
+- El botón **CONTROLES** del lanzador abre la ayuda táctil.
 
 El selector usa `ACTION_OPEN_DOCUMENT`, así que no hace falta permiso de almacenamiento.
 

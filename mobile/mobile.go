@@ -114,6 +114,7 @@ type mobileGame struct {
 	seenTouches map[ebiten.TouchID]bool
 	pauseHold   bool
 	hudPad      byte
+	showHelp    bool
 }
 
 var globalGame *mobileGame
@@ -344,7 +345,13 @@ func (g *mobileGame) tapLauncher(x, y float64) {
 		ww, wh = 800, 480
 	}
 	lay := makeLauncher(float64(ww), float64(wh), g.hasROM())
+	if g.showHelp {
+		g.showHelp = false
+		return
+	}
 	switch {
+	case lay.help.hit(x, y):
+		g.showHelp = true
 	case lay.choose.hit(x, y), lay.change.hit(x, y):
 		requestPicker()
 	case lay.play.hit(x, y):
@@ -559,6 +566,7 @@ type launcherLayout struct {
 	scale                float64
 	card                 box
 	choose, play, change box
+	help                 box
 }
 
 func makeLauncher(w, h float64, hasROM bool) launcherLayout {
@@ -575,6 +583,7 @@ func makeLauncher(w, h float64, hasROM bool) launcherLayout {
 	lay := launcherLayout{
 		scale: s,
 		card:  box{cardX, cardY, cardW, cardH},
+		help:  box{x: w - 24*s - 180*s, y: 15 * s, w: 180 * s, h: 34 * s},
 	}
 	if hasROM {
 		lay.play = box{cardX + cardW/2 - btnW - 12*s, cardY + cardH - btnH - 28*s, btnW, btnH}
@@ -599,6 +608,7 @@ func (g *mobileGame) drawLauncher(dst *ebiten.Image, romName string, romSize int
 	vector.DrawFilledRect(dst, float32(24*s), float32(15*s), float32(74*s), float32(32*s), color.RGBA{0, 85, 204, 255}, true)
 	drawText(dst, "SEGA", 30*s, 18*s, 1.35*s, color.RGBA{235, 245, 255, 255})
 	drawText(dst, "GOSMS  ·  MASTER SYSTEM", 112*s, 19*s, 1.15*s, color.RGBA{225, 238, 250, 255})
+	drawButton(dst, lay.help, "CONTROLES", 0.95*s, color.RGBA{0, 160, 255, 220}, false)
 	drawText(dst, g.padStatus(), 24*s, 72*s, 0.95*s, color.RGBA{130, 180, 220, 230})
 
 	// Tarjeta central.
@@ -626,6 +636,35 @@ func (g *mobileGame) drawLauncher(dst *ebiten.Image, romName string, romSize int
 	// Pie.
 	drawTextCentered(dst, "Atrás: salir   ·   Mando USB/Bluetooth: detección automática", sw/2, sh-30*s, 0.8*s, color.RGBA{95, 125, 160, 220})
 	drawTextCentered(dst, "GoSMS · Sega Master System", sw/2, sh-14*s, 0.7*s, color.RGBA{65, 90, 120, 220})
+
+	if g.showHelp {
+		drawMobileHelp(dst, sw, sh, s, g.padStatus())
+	}
+}
+
+func drawMobileHelp(dst *ebiten.Image, sw, sh, s float64, padStatus string) {
+	vector.DrawFilledRect(dst, 0, 0, float32(sw), float32(sh), color.RGBA{0, 0, 0, 215}, true)
+	w := math.Min(sw-60*s, 760*s)
+	h := math.Min(sh-60*s, 430*s)
+	x := (sw - w) / 2
+	y := (sh - h) / 2
+	vector.DrawFilledRect(dst, float32(x), float32(y), float32(w), float32(h), color.RGBA{16, 22, 34, 250}, true)
+	vector.StrokeRect(dst, float32(x), float32(y), float32(w), float32(h), float32(math.Max(1.5, 1.5*s)), color.RGBA{0, 170, 255, 240}, true)
+	drawTextCentered(dst, "CONTROLES", sw/2, y+20*s, 1.7*s, color.RGBA{240, 246, 255, 255})
+	lines := []string{
+		"D-PAD: mover",
+		"1 / 2: botones de acción",
+		"PAUSA: PAUSE / START del juego",
+		"MENÚ: volver al lanzador",
+		"ATRÁS: lanzador / salir de la app",
+		"ELEGIR / CAMBIAR ROM: selector del sistema",
+		"CONTROLES: abrir o cerrar esta ayuda",
+	}
+	for i, line := range lines {
+		drawText(dst, line, x+36*s, y+70*s+float64(i)*28*s, 1.0*s, color.RGBA{205, 222, 240, 240})
+	}
+	drawText(dst, padStatus, x+36*s, y+h-58*s, 0.9*s, color.RGBA{130, 180, 220, 230})
+	drawTextCentered(dst, "Toca la pantalla para cerrar", sw/2, y+h-28*s, 0.85*s, color.RGBA{95, 135, 170, 220})
 }
 
 func formatKB(n int) string {

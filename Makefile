@@ -153,12 +153,14 @@ release:
 	@GOOS=windows GOARCH=amd64 go build -ldflags="-H=windowsgui -s -w" -o bin/gosms-win64.exe ./$(CMD_DIR)/emulator
 	@printf "$(BLUE)==> Preparando paquete portable para Linux...$(RESET)\n"
 	@cp bin/gosms-linux dist/gosms-linux/gosms
+	@cp README.md CONTROLES.md dist/gosms-linux/
 	@if [ -d "assets" ]; then cp -r assets dist/gosms-linux/; fi
 	@mkdir -p dist/gosms-linux/roms
 	@echo "Coloca tus ROMs .sms o .bin aquí" > dist/gosms-linux/roms/leer_roms.txt
 	@cd dist && rm -f gosms-linux-release.zip && zip -r gosms-linux-release.zip gosms-linux > /dev/null
 	@printf "$(BLUE)==> Preparando paquete portable para Windows...$(RESET)\n"
 	@cp bin/gosms-win64.exe dist/gosms-windows/gosms.exe
+	@cp README.md CONTROLES.md dist/gosms-windows/
 	@if [ -d "assets" ]; then cp -r assets dist/gosms-windows/; fi
 	@mkdir -p dist/gosms-windows/roms
 	@echo "Coloca tus ROMs .sms o .bin aquí" > dist/gosms-windows/roms/leer_roms.txt
