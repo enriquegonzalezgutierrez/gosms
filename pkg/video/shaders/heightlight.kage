@@ -42,10 +42,10 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	}
 
 	center := heightAt(src0Pos)
-	hl := heightNear(src0Pos-vec2(1.5, 0.0), center)
-	hr := heightNear(src0Pos+vec2(1.5, 0.0), center)
-	hu := heightNear(src0Pos-vec2(0.0, 1.5), center)
-	hd := heightNear(src0Pos+vec2(0.0, 1.5), center)
+	hl := heightNear(src0Pos-vec2(3.0, 0.0), center)
+	hr := heightNear(src0Pos+vec2(3.0, 0.0), center)
+	hu := heightNear(src0Pos-vec2(0.0, 3.0), center)
+	hd := heightNear(src0Pos+vec2(0.0, 3.0), center)
 
 	gx := hr - hl
 	gy := hd - hu

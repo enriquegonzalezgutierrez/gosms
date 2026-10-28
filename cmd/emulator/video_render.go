@@ -49,7 +49,11 @@ func (g *game) hdFrameSource() (*ebiten.Image, image.Rectangle) {
 	// drawHDLayer uses the same coordinate system as the emulated 256x192
 	// screen, scaled by the pack factor. Passing 0,0 as the destination keeps
 	// the composed layer aligned with its own texture.
-	g.drawHDLayer(g.hdTarget, g.hdHeight, float64(hd.Scale), 0, 0)
+	var heightDst *ebiten.Image
+	if g.hdLight {
+		heightDst = g.hdHeight
+	}
+	g.drawHDLayer(g.hdTarget, heightDst, float64(hd.Scale), 0, 0)
 	return g.hdTarget, image.Rect(0, 0, w, h)
 }
 

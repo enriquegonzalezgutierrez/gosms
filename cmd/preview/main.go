@@ -177,7 +177,9 @@ func main() {
 		w := (vdp.ScreenW - minX) * machine.HD.Scale
 		h := vdp.ScreenH * machine.HD.Scale
 		layer := ebiten.NewImage(w, h)
-		heightLayer = ebiten.NewImage(w, h)
+		if !*noHeight {
+			heightLayer = ebiten.NewImage(w, h)
+		}
 		machine.HD.DrawLayer(m.VDP, layer, heightLayer, float64(machine.HD.Scale), 0, 0, *crop)
 		src = layer
 		srcRect = image.Rect(0, 0, w, h)
@@ -198,7 +200,7 @@ func main() {
 	dstRect := image.Rect((*width-dstW)/2, (*height-dstH)/2, (*width-dstW)/2+dstW, (*height-dstH)/2+dstH)
 
 	opts := video.DefaultOptions(preset, *hd)
-	if *hd && machine.HD != nil && machine.HD.HasHeight && !*noHeight {
+	if heightLayer != nil && machine.HD != nil && machine.HD.HasHeight {
 		opts.Height = heightLayer
 	}
 	if *hd && machine.HD != nil && machine.HD.Active && !*noSky &&
