@@ -55,6 +55,7 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 | **Botón PAUSE / START (Consola)** | `P` o `Enter` | — | Botón `Start` | Botón `[ PAUSE ]` |
 | **Cambiar Filtro de Vídeo** | `F1` o `V` | — | — | — |
 | **Alternar HD / Original** | `F10` | — | — | — |
+| **Luz de altura HD (rendimiento)** | `F6` | — | — | — |
 | **Cambiar Filtro de Audio** | `F2` o `B` | — | — | — |
 | **Guardar Partida Rápida** | `F5` | — | — | — |
 | **Cargar Partida Rápida** | `F8` | — | — | — |

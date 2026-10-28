@@ -136,8 +136,14 @@ func (g *game) pipelineOptions() video.Options {
 		preset = video.PresetPixelPerfect
 	}
 	opts := video.DefaultOptions(preset, g.hdMode)
-	if g.hdMode && g.hdHeight != nil && machine.HD != nil && machine.HD.HasHeight {
+	if g.hdMode && g.hdLight && g.hdHeight != nil && machine.HD != nil && machine.HD.HasHeight {
 		opts.Height = g.hdHeight
+	}
+	if !g.hdLight {
+		// Sin luz de altura no hace falta ni el pase de altura ni el relieve
+		// por gradiente: solo queda el albedo HD, el cielo y el color.
+		opts.HeightLit = 0
+		opts.Relief = 0
 	}
 	if g.hdMode && machine.HD != nil && machine.HD.Active &&
 		(preset == video.PresetModern || preset == video.PresetCRT) {

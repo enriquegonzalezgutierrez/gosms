@@ -411,6 +411,7 @@ type game struct {
 	fullscreen bool
 	crop       bool
 	hdMode     bool
+	hdLight    bool
 	dumper     *LiveDumper
 	audioBuf   *audioBuffer
 	dsp        AudioDSP
@@ -510,6 +511,17 @@ func (g *game) Update() error {
 			}
 		} else {
 			g.showOSD("PACK HD NO DISPONIBLE PARA ESTE JUEGO")
+		}
+	}
+
+	// F6: luz de altura HD. Desactivarla aligera mucho el pase de relieve en
+	// equipos modestos y sirve para comparar el volumen con el albedo plano.
+	if inpututil.IsKeyJustPressed(ebiten.KeyF6) {
+		g.hdLight = !g.hdLight
+		if g.hdLight {
+			g.showOSD("LUZ HD: ACTIVADA")
+		} else {
+			g.showOSD("LUZ HD: DESACTIVADA (RENDIMIENTO)")
 		}
 	}
 
@@ -932,6 +944,7 @@ func main() {
 		audioFilter: AudioFilterWarm, // Por defecto altavoz cálido analógico
 		pipeline:    video.New(),
 		hdMode:      *hd,
+		hdLight:     true,
 	}
 
 	if flag.NArg() > 0 {

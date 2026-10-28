@@ -243,6 +243,7 @@ make preview ROM="..." PREVIEW_FILTER=modern PREVIEW_HD=true
 O dentro del juego:
 
 - **F10** alterna original y remaster.
+- **F6** enciende o apaga la luz de altura (útil si el equipo va justo).
 - **F1** recorre los filtros de post-proceso. **REMASTER 2026** es el más
   completo (luz, cielo y bloom); **SUAVIZADO** es el más ligero.
 - **P** o **Enter** pulsa PAUSE/START (en Alex Kidd abre el mapa e inventario).

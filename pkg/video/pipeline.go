@@ -128,9 +128,10 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		opts.ReliefAmbient = 1.0
 		opts.ReliefDiffuse = 0.90
 		if hd {
-			// El arte vectorizado ya llega limpio; un sharpen fuerte sobre el
-			// escalado hace que el decorado vibre al desplazarse.
-			opts.Sharpness = 0.22
+			// El arte vectorizado ya llega limpio. El sharpen sobre el escalado
+			// hacia vibrar el decorado al desplazarse y anadia otro pase
+			// full-screen; en HD no aporta y se desactiva.
+			opts.Sharpness = 0
 			opts.ReliefSpecular = 0.04
 			opts.ReliefRim = 0.02
 		}
@@ -157,7 +158,7 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		opts.HeightSlope = 4.5
 		opts.HeightOcclusion = 0.6
 		if hd {
-			opts.Sharpness = 0.18
+			opts.Sharpness = 0
 			opts.ReliefSpecular = 0.03
 			opts.ReliefRim = 0.015
 		}
