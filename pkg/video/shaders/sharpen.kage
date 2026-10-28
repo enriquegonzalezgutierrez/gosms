@@ -1,0 +1,29 @@
+//kage:unit pixels
+package main
+
+var Sharpness float
+
+// Fragment applies a small unsharp mask. The input is already at the target
+// resolution, so the effect works on real screen pixels and does not invent
+// sub-pixel detail.
+func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
+	origin := imageSrc0Origin()
+	size := imageSrc0Size()
+	pos := src0Pos - origin
+
+	// Clamp the sample positions to the source region. Sampling outside returns
+	// zero, which would create a dark fringe around the image.
+	limit := size - vec2(0.001)
+	left := imageSrc0At(origin + clamp(pos+vec2(-1.0, 0.0), vec2(0.0), limit))
+	right := imageSrc0At(origin + clamp(pos+vec2(1.0, 0.0), vec2(0.0), limit))
+	up := imageSrc0At(origin + clamp(pos+vec2(0.0, -1.0), vec2(0.0), limit))
+	down := imageSrc0At(origin + clamp(pos+vec2(0.0, 1.0), vec2(0.0), limit))
+	center := imageSrc0At(src0Pos)
+
+	blur := (left + right + up + down) * 0.25
+	sharpened := center + (center-blur)*Sharpness
+
+	// Keep the result in premultiplied-alpha space and inside the valid range.
+	sharpened.rgb = clamp(sharpened.rgb, vec3(0.0), vec3(sharpened.a))
+	return sharpened
+}

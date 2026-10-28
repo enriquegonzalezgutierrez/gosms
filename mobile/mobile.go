@@ -13,6 +13,7 @@ import (
 
 	"gosms/pkg/machine"
 	"gosms/pkg/vdp"
+	"gosms/pkg/video"
 )
 
 const (
@@ -65,7 +66,7 @@ type mobileGame struct {
 	monoBuf   []byte
 	stereoBuf []byte
 	touchIDs  []ebiten.TouchID
-	drawOp    ebiten.DrawImageOptions
+	pipeline  *video.Pipeline
 	pauseHold bool
 }
 
@@ -84,6 +85,7 @@ func newMobileGame() *mobileGame {
 	g := &mobileGame{
 		img:      ebiten.NewImage(vdp.ScreenW, vdp.ScreenH),
 		audioBuf: aBuf,
+		pipeline: video.New(),
 	}
 	globalGame = g
 	return g
@@ -206,18 +208,25 @@ func (g *mobileGame) Draw(screen *ebiten.Image) {
 	}
 
 	g.img.WritePixels(g.m.VDP.Frame[:])
-	srcW, srcH := float64(vdp.ScreenW-8), float64(vdp.ScreenH)
-	subImg := g.img.SubImage(image.Rect(8, 0, vdp.ScreenW, vdp.ScreenH)).(*ebiten.Image)
+	srcRect := image.Rect(8, 0, vdp.ScreenW, vdp.ScreenH)
+	srcW, srcH := float64(srcRect.Dx()), float64(srcRect.Dy())
 
 	scale := math.Min(sw/srcW, sh/srcH)
-	destX := (sw - srcW*scale) / 2
-	destY := (sh - srcH*scale) / 2
+	dstW := int(math.Round(srcW * scale))
+	dstH := int(math.Round(srcH * scale))
+	destX := (int(sw) - dstW) / 2
+	destY := (int(sh) - dstH) / 2
 
-	g.drawOp.GeoM.Reset()
-	g.drawOp.GeoM.Scale(scale, scale)
-	g.drawOp.GeoM.Translate(destX, destY)
-	g.drawOp.Filter = ebiten.FilterNearest
-	screen.DrawImage(subImg, &g.drawOp)
+	if g.pipeline == nil {
+		g.pipeline = video.New()
+	}
+	if err := g.pipeline.Draw(screen, g.img, srcRect, image.Rect(destX, destY, destX+dstW, destY+dstH), video.DefaultOptions(video.PresetPixelPerfect, false)); err != nil {
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(scale, scale)
+		op.GeoM.Translate(float64(destX), float64(destY))
+		op.Filter = ebiten.FilterNearest
+		screen.DrawImage(g.img.SubImage(srcRect).(*ebiten.Image), op)
+	}
 
 	// Controles táctiles
 	ctrlAlpha := uint8(110)

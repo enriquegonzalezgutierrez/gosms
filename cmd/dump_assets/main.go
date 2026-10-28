@@ -200,6 +200,72 @@ func makeSpriteObjects(sprites []visibleSprite, frame int, tiles []machine.TileM
 	}
 }
 
+// makeBackgroundObjects groups the visible background into square blocks of
+// tiles. AI image-to-image works much better on a coherent 64x64 or 128x128
+// block than on isolated 8x8 tiles, and repeated blocks are deduplicated by
+// their tile signature.
+func makeBackgroundObjects(tileMap [][]int, frame int, tiles []machine.TileManifest, tileImages map[string]*image.RGBA, objects map[string]*objectAccumulator, group, protectedRows int) {
+	if group < 2 || len(tileMap) == 0 {
+		return
+	}
+	rows, cols := len(tileMap), len(tileMap[0])
+	if protectedRows < 0 {
+		protectedRows = 0
+	}
+	for by := protectedRows; by+group <= rows; by += group {
+		for bx := 0; bx+group <= cols; bx += group {
+			var placements []machine.TileObjectPlacement
+			var signatureParts []string
+			for y := 0; y < group; y++ {
+				for x := 0; x < group; x++ {
+					index := tileMap[by+y][bx+x]
+					if index < 0 || index >= len(tiles) {
+						continue
+					}
+					placements = append(placements, machine.TileObjectPlacement{
+						Index: index,
+						X:     x * 8,
+						Y:     y * 8,
+					})
+					signatureParts = append(signatureParts, fmt.Sprintf("%s@%d,%d", tiles[index].Hash, x*8, y*8))
+				}
+			}
+			// Ignore blocks that are mostly empty (screen edges, cutscenes,
+			// partial scrolling) so they do not pollute the AI workspace.
+			if len(placements) < (group*group)/3 {
+				continue
+			}
+			sort.Strings(signatureParts)
+			h := fnv.New64a()
+			for _, part := range signatureParts {
+				_, _ = h.Write([]byte(part + ";"))
+			}
+			id := fmt.Sprintf("bg_%016x", h.Sum64())
+			acc := objects[id]
+			if acc == nil {
+				preview := image.NewRGBA(image.Rect(0, 0, group*8, group*8))
+				for _, placement := range placements {
+					tile := tileImages[tiles[placement.Index].Hash]
+					if tile == nil {
+						continue
+					}
+					draw.Draw(preview, image.Rect(placement.X, placement.Y, placement.X+8, placement.Y+8), tile, image.Point{}, draw.Over)
+				}
+				acc = &objectAccumulator{
+					manifest: machine.TileObjectManifest{
+						ID: id, Kind: "background_object", Label: "background",
+						Preview:    filepath.ToSlash(filepath.Join("objects", id+".png")),
+						FirstFrame: frame, Tiles: placements,
+					},
+					preview: preview,
+				}
+				objects[id] = acc
+			}
+			acc.manifest.FramesSeen++
+		}
+	}
+}
+
 func decodeColor(c byte) color.RGBA {
 	r := (c & 3) * 85
 	g := ((c >> 2) & 3) * 85
@@ -280,9 +346,11 @@ func loadHumanObjectMetadata(path string) (map[string]string, []machine.TileObje
 func main() {
 	frames := flag.Int("frames", extractionFrames, "número de frames usados para descubrir tiles y objetos")
 	bot := flag.String("bot", "default", "perfil de controles: default o alex-kidd")
+	bgGroup := flag.Int("bg-group", 0, "tamaño en tiles de los bloques de fondo para remasterizar (0 = desactivado, 8 = 64x64 px)")
+	bgProtect := flag.Int("bg-protect", 0, "filas superiores de la name table que no se agrupan (HUD)")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Println("Uso: dump_assets [-frames N] [-bot default|alex-kidd] <rom.sms>")
+		fmt.Println("Uso: dump_assets [-frames N] [-bot default|alex-kidd] [-bg-group 8] [-bg-protect 2] <rom.sms>")
 		return
 	}
 	if *frames < 1 {
@@ -435,6 +503,10 @@ func main() {
 				makeSpriteObjects(visible, f, manifest, uniqueTiles, objects)
 			}
 
+			if *bgGroup >= 2 && f%30 == 0 {
+				makeBackgroundObjects(tileMap, f, manifest, uniqueTiles, objects, *bgGroup, *bgProtect)
+			}
+
 			if !staticAlexKidd && f%120 == 0 {
 				imageName := fmt.Sprintf("frame_%05d.png", f)
 				scenes = append(scenes, machine.TileSceneManifest{
@@ -579,7 +651,14 @@ func main() {
 			romBacked++
 		}
 	}
-	fmt.Printf("✅ VOLCADO COMPLETADO: %d tiles (%d encontrados sin comprimir en ROM), %d composites y %d mapas de escena\n", len(manifest), romBacked, len(objectManifest), len(scenes))
+	backgroundObjects := 0
+	for _, object := range objectManifest {
+		if object.Kind == "background_object" {
+			backgroundObjects++
+		}
+	}
+	fmt.Printf("✅ VOLCADO COMPLETADO: %d tiles (%d encontrados sin comprimir en ROM), %d composites (%d de fondo) y %d mapas de escena\n",
+		len(manifest), romBacked, len(objectManifest), backgroundObjects, len(scenes))
 }
 
 func saveJSON(path string, data interface{}) error {

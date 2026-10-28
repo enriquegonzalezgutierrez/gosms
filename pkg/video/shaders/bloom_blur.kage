@@ -1,0 +1,46 @@
+//kage:unit pixels
+package main
+
+var Radius float
+
+const Norm = 0.5544700708
+
+func tap(pos vec2, delta vec2, origin vec2, limit vec2) vec4 {
+	return imageSrc0At(origin + clamp(pos+delta, vec2(0.0), limit))
+}
+
+// Fragment performs a 13-tap blur on a quarter-resolution bloom buffer. The
+// effective radius is large without sampling the full-resolution image many
+// times.
+func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
+	origin := imageSrc0Origin()
+	size := imageSrc0Size()
+	pos := src0Pos - origin
+	limit := size - vec2(0.001)
+
+	r := max(Radius, 0.0)
+	t := vec2(1.0) / size
+
+	var acc vec4
+	acc += imageSrc0At(src0Pos) * 0.1964825501511404
+	acc += tap(pos, vec2(1.0*t.x*r, 0.0), origin, limit) * 0.2969069646728344
+	acc += tap(pos, vec2(-1.0*t.x*r, 0.0), origin, limit) * 0.2969069646728344
+	acc += tap(pos, vec2(0.0, 1.0*t.y*r), origin, limit) * 0.2969069646728344
+	acc += tap(pos, vec2(0.0, -1.0*t.y*r), origin, limit) * 0.2969069646728344
+	acc += tap(pos, vec2(2.0*t.x*r, 0.0), origin, limit) * 0.09447039785044732
+	acc += tap(pos, vec2(-2.0*t.x*r, 0.0), origin, limit) * 0.09447039785044732
+	acc += tap(pos, vec2(0.0, 2.0*t.y*r), origin, limit) * 0.09447039785044732
+	acc += tap(pos, vec2(0.0, -2.0*t.y*r), origin, limit) * 0.09447039785044732
+	acc += tap(pos, vec2(3.0*t.x*r, 0.0), origin, limit) * 0.010381362401148057
+	acc += tap(pos, vec2(-3.0*t.x*r, 0.0), origin, limit) * 0.010381362401148057
+	acc += tap(pos, vec2(0.0, 3.0*t.y*r), origin, limit) * 0.010381362401148057
+	acc += tap(pos, vec2(0.0, -3.0*t.y*r), origin, limit) * 0.010381362401148057
+
+	acc *= Norm
+	// Only bright areas should glow. This keeps dark blues and blacks from
+	// looking washed out while still giving clouds and highlights a halo.
+	luma := dot(acc.rgb, vec3(0.299, 0.587, 0.114))
+	acc *= smoothstep(0.55, 1.0, luma)
+	acc.rgb = clamp(acc.rgb, vec3(0.0), vec3(acc.a))
+	return acc
+}

@@ -26,6 +26,7 @@ import (
 
 	"gosms/pkg/machine"
 	"gosms/pkg/vdp"
+	"gosms/pkg/video"
 )
 
 const (
@@ -55,7 +56,7 @@ var videoFilterNames = []string{
 	"SCALE2X EPX (HD SUAVE)",
 	"SUAVIZADO BILINEAL",
 	"FÓSFORO VERDE MONOCROMO",
-	"REMASTER 2026 (HDR + CURVAS)",
+	"REMASTER 2026 (NÍTIDO + BLOOM)",
 }
 
 type AudioFilter int
@@ -394,39 +395,6 @@ const (
 	StatePlaying
 )
 
-
-const shaderRemaster2026 = `
-//kage:unit pixels
-package main
-
-func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
-	// Muestreo del píxel central
-	c := imageSrc0At(srcPos)
-	
-	// 1. Suavizado subpíxel (Anti-aliasing)
-	cUp    := imageSrc0At(srcPos + vec2(0.0, -1.0))
-	cDown  := imageSrc0At(srcPos + vec2(0.0,  1.0))
-	cLeft  := imageSrc0At(srcPos + vec2(-1.0, 0.0))
-	cRight := imageSrc0At(srcPos + vec2( 1.0, 0.0))
-
-	edgeBlend := (cUp + cDown + cLeft + cRight) * 0.25
-	smoothCol := mix(c, edgeBlend, 0.3)
-
-	// 2. Realce de color OLED 2026
-	rgb := smoothCol.rgb
-	luma := dot(rgb, vec3(0.299, 0.587, 0.114))
-	rgb = mix(vec3(luma), rgb, 1.35)       // +35% Saturación
-	rgb = pow(rgb, vec3(0.85)) * 1.15      // Contraste curvo S
-
-	// 3. Bloom / Glow dinámico
-	bloom := max(rgb - vec3(0.6), vec3(0.0)) * 0.5
-	rgb += bloom
-
-	return vec4(rgb, c.a)
-}
-`
-var remasterShader *ebiten.Shader
-
 type game struct {
 	state      AppState
 	romFiles   []string
@@ -449,8 +417,11 @@ type game struct {
 	monoBuf    []byte
 	stereoBuf  []byte
 	samplesBuf []int16
-	drawOp     ebiten.DrawImageOptions
 	frames     int
+
+	// Pipeline de post-procesado compartido con Android.
+	pipeline *video.Pipeline
+	hdTarget *ebiten.Image
 
 	// Filtros de post-procesado
 	videoFilter VideoFilter
@@ -460,10 +431,9 @@ type game struct {
 	osdText  string
 	osdTimer int
 
-	// Textura de scanlines CRT
-	scanlineImg *ebiten.Image
-	epxImg      *ebiten.Image
-	epxBuf      []byte
+	// Textura temporal del upscaler EPX.
+	epxImg *ebiten.Image
+	epxBuf []byte
 }
 
 func (g *game) loadGame(path string) error {
@@ -571,19 +541,19 @@ func (g *game) Update() error {
 			return ebiten.Termination
 		}
 		// Tecla F3 para cambiar/recargar carpeta de roms
-	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
-		cfg := loadConfig()
-		// Alternar o buscar en directorio actual por defecto
-		if cfg.RomsDir == "roms" {
-			cfg.RomsDir = "."
-		} else {
-			cfg.RomsDir = "roms"
+		if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
+			cfg := loadConfig()
+			// Alternar o buscar en directorio actual por defecto
+			if cfg.RomsDir == "roms" {
+				cfg.RomsDir = "."
+			} else {
+				cfg.RomsDir = "roms"
+			}
+			saveConfig(cfg)
+			g.selected = 0
 		}
-		saveConfig(cfg)
-		g.selected = 0
-	}
 
-	if len(g.roms) > 0 {
+		if len(g.roms) > 0 {
 			// Tecla R: Regenerar carátula del juego seleccionado
 			if inpututil.IsKeyJustPressed(ebiten.KeyR) {
 				g.showOSD("REGENERANDO CARÁTULA...")
@@ -860,175 +830,32 @@ func (g *game) Draw(screen *ebiten.Image) {
 	g.img.WritePixels(g.m.VDP.Frame[:])
 
 	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
-	var imgToDraw *ebiten.Image
-	var srcW, srcH float64
-	if g.crop {
-		imgToDraw = g.img.SubImage(image.Rect(8, 0, vdp.ScreenW, vdp.ScreenH)).(*ebiten.Image)
-		srcW, srcH = float64(vdp.ScreenW-8), float64(vdp.ScreenH)
-	} else {
-		imgToDraw = g.img
-		srcW, srcH = float64(vdp.ScreenW), float64(vdp.ScreenH)
+	source, srcRect := g.frameSource()
+	if source == nil || srcRect.Empty() {
+		return
 	}
 
-	scale := math.Min(float64(sw)/srcW, float64(sh)/srcH)
-	destX := (float64(sw) - srcW*scale) / 2
-	destY := (float64(sh) - srcH*scale) / 2
+	srcW, srcH := srcRect.Dx(), srcRect.Dy()
+	scale := math.Min(float64(sw)/float64(srcW), float64(sh)/float64(srcH))
+	dstW := int(math.Round(float64(srcW) * scale))
+	dstH := int(math.Round(float64(srcH) * scale))
+	destX := (sw - dstW) / 2
+	destY := (sh - dstH) / 2
+	dstRect := image.Rect(destX, destY, destX+dstW, destY+dstH)
 
-	g.drawOp.GeoM.Reset()
-	g.drawOp.GeoM.Scale(scale, scale)
-	g.drawOp.GeoM.Translate(destX, destY)
-	g.drawOp.ColorScale.Reset()
-
-	// 2. Renderizado exclusivo: Modo HD o Modo Original con filtros
-	if g.hdMode && machine.HD != nil && machine.HD.Active {
-		g.drawHDOverlay(screen, scale, destX, destY)
-	} else {
-		switch g.videoFilter {
-	case VideoFilterEPX:
-		if g.epxImg == nil {
-			g.epxImg = ebiten.NewImage(vdp.ScreenW*2, vdp.ScreenH*2)
-			g.epxBuf = make([]byte, vdp.ScreenW*2*vdp.ScreenH*2*4)
-		}
-		// Algoritmo EPX / Scale2x por CPU
-		src := g.m.VDP.Frame[:]
-		dst := g.epxBuf
-		srcW := vdp.ScreenW
-		srcH := vdp.ScreenH
-		for y := 0; y < srcH; y++ {
-			for x := 0; x < srcW; x++ {
-				// Índices centrales y vecinos
-				idxP := (y*srcW + x) * 4
-				var idxA, idxB, idxI, idxD int
-				if y > 0 {
-					idxA = ((y-1)*srcW + x) * 4
-				} else {
-					idxA = idxP
-				}
-				if y < srcH-1 {
-					idxB = ((y+1)*srcW + x) * 4
-				} else {
-					idxB = idxP
-				}
-				if x > 0 {
-					idxI = (y*srcW + x - 1) * 4
-				} else {
-					idxI = idxP
-				}
-				if x < srcW-1 {
-					idxD = (y*srcW + x + 1) * 4
-				} else {
-					idxD = idxP
-				}
-
-				// Colores (leídos como uint32)
-				p := uint32(src[idxP])<<16 | uint32(src[idxP+1])<<8 | uint32(src[idxP+2])
-				a := uint32(src[idxA])<<16 | uint32(src[idxA+1])<<8 | uint32(src[idxA+2])
-				b := uint32(src[idxB])<<16 | uint32(src[idxB+1])<<8 | uint32(src[idxB+2])
-				i := uint32(src[idxI])<<16 | uint32(src[idxI+1])<<8 | uint32(src[idxI+2])
-				d := uint32(src[idxD])<<16 | uint32(src[idxD+1])<<8 | uint32(src[idxD+2])
-
-				// P1 P2
-				// P3 P4
-				p1, p2, p3, p4 := p, p, p, p
-
-				if i == a && i != b && a != d {
-					p1 = a
-				}
-				if a == d && a != i && d != b {
-					p2 = a
-				}
-				if i == b && i != a && b != d {
-					p3 = b
-				}
-				if b == d && b != i && d != a {
-					p4 = b
-				}
-
-				// Escribir los 4 píxeles al buffer HD (2x)
-				dIdx1 := ((y*2)*(srcW*2) + (x * 2)) * 4
-				dIdx2 := dIdx1 + 4
-				dIdx3 := ((y*2+1)*(srcW*2) + (x * 2)) * 4
-				dIdx4 := dIdx3 + 4
-
-				dst[dIdx1], dst[dIdx1+1], dst[dIdx1+2], dst[dIdx1+3] = byte(p1>>16), byte(p1>>8), byte(p1), 255
-				dst[dIdx2], dst[dIdx2+1], dst[dIdx2+2], dst[dIdx2+3] = byte(p2>>16), byte(p2>>8), byte(p2), 255
-				dst[dIdx3], dst[dIdx3+1], dst[dIdx3+2], dst[dIdx3+3] = byte(p3>>16), byte(p3>>8), byte(p3), 255
-				dst[dIdx4], dst[dIdx4+1], dst[dIdx4+2], dst[dIdx4+3] = byte(p4>>16), byte(p4>>8), byte(p4), 255
-			}
-		}
-		g.epxImg.WritePixels(g.epxBuf)
-
-		// Recorte del overscan si está activado (para el imgToDraw 2x)
-		var imgHD *ebiten.Image
-		var drawW, drawH float64
-		if g.crop {
-			imgHD = g.epxImg.SubImage(image.Rect(16, 0, vdp.ScreenW*2, vdp.ScreenH*2)).(*ebiten.Image)
-			drawW, drawH = float64(vdp.ScreenW*2-16), float64(vdp.ScreenH*2)
-		} else {
-			imgHD = g.epxImg
-			drawW, drawH = float64(vdp.ScreenW*2), float64(vdp.ScreenH*2)
-		}
-
-		scaleHD := math.Min(float64(sw)/drawW, float64(sh)/drawH)
-		destXHD := (float64(sw) - drawW*scaleHD) / 2
-		destYHD := (float64(sh) - drawH*scaleHD) / 2
-
-		g.drawOp.GeoM.Reset()
-		g.drawOp.GeoM.Scale(scaleHD, scaleHD)
-		g.drawOp.GeoM.Translate(destXHD, destYHD)
-		g.drawOp.Filter = ebiten.FilterNearest
-		screen.DrawImage(imgHD, &g.drawOp)
-
-	case VideoFilterRemaster2026:
-		var err error
-		if remasterShader == nil {
-			remasterShader, err = ebiten.NewShader([]byte(shaderRemaster2026))
-			if err != nil {
-				fmt.Printf("Error shader: %v\n", err)
-			}
-		}
-		op := &ebiten.DrawRectShaderOptions{}
-		op.GeoM.Scale(scale, scale)
-		op.GeoM.Translate(destX, destY)
-		op.Images[0] = imgToDraw
-		op.Uniforms = map[string]any{
-			"SourceSize": []float32{float32(srcW), float32(srcH)},
-		}
-		screen.DrawRectShader(int(srcW), int(srcH), remasterShader, op)
-
-	case VideoFilterPixelPerfect:
-		g.drawOp.Filter = ebiten.FilterNearest
-		screen.DrawImage(imgToDraw, &g.drawOp)
-
-	case VideoFilterSmooth:
-		g.drawOp.Filter = ebiten.FilterLinear
-		screen.DrawImage(imgToDraw, &g.drawOp)
-
-	case VideoFilterMonochrome:
-		// Estilo retro fósforo verde Game Boy
-		g.drawOp.Filter = ebiten.FilterNearest
-		g.drawOp.ColorScale.Scale(0.3, 1.2, 0.4, 1.0)
-		screen.DrawImage(imgToDraw, &g.drawOp)
-
-	case VideoFilterScanlines:
-		g.drawOp.Filter = ebiten.FilterNearest
-		screen.DrawImage(imgToDraw, &g.drawOp)
-
-		// Rejilla de scanlines nítida adaptada a la escala de pantalla
-		targetH := int(srcH * scale)
-		if g.scanlineImg == nil || g.scanlineImg.Bounds().Dy() != targetH {
-			g.scanlineImg = ebiten.NewImage(1, targetH)
-			for y := 0; y < targetH; y++ {
-				if y%3 == 2 { // Atenuación suave en la tercera línea de cada píxel
-					g.scanlineImg.Set(0, y, color.RGBA{0, 0, 0, 80})
-				}
-			}
-		}
-		scanOp := &ebiten.DrawImageOptions{}
-		scanOp.GeoM.Scale(srcW*scale, 1)
-		scanOp.GeoM.Translate(destX, destY)
-		screen.DrawImage(g.scanlineImg, scanOp)
+	if g.pipeline == nil {
+		g.pipeline = video.New()
 	}
+	if err := g.pipeline.Draw(screen, source, srcRect, dstRect, g.pipelineOptions()); err != nil {
+		// Un shader roto nunca debe impedir jugar: dibujamos el frame nativo.
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(float64(dstW)/float64(srcW), float64(dstH)/float64(srcH))
+		op.GeoM.Translate(float64(destX), float64(destY))
+		op.Filter = ebiten.FilterNearest
+		screen.DrawImage(source.SubImage(srcRect).(*ebiten.Image), op)
+		if g.osdTimer == 0 {
+			g.showOSD("ERROR DE POSTPROCESADO: " + err.Error())
+		}
 	}
 
 	// 3. Notificación OSD emergente al cambiar filtros (fondo translúcido + borde neón)
@@ -1071,14 +898,18 @@ func findRomFiles(dir string) []string {
 	return files
 }
 
-
-
 func main() {
 	scale := flag.Float64("scale", 3, "factor de escala de la ventana")
 	fullscreen := flag.Bool("fullscreen", false, "arrancar a pantalla completa")
 	crop := flag.Bool("crop", true, "recortar los 8 píxeles de overscan lateral izquierdo")
 	romsDir := flag.String("roms", "roms", "directorio donde buscar juegos")
+	hd := flag.Bool("hd", false, "arrancar con el pack HD activado")
+	filter := flag.Int("filter", int(VideoFilterPixelPerfect), "filtro de vídeo inicial (0-5)")
 	flag.Parse()
+	initialFilter := VideoFilter(*filter)
+	if initialFilter < 0 || int(initialFilter) >= len(videoFilterNames) {
+		initialFilter = VideoFilterPixelPerfect
+	}
 
 	audioBuf := newAudioBuffer()
 	audioCtx := audio.NewContext(sampleRate)
@@ -1095,8 +926,10 @@ func main() {
 		fullscreen:  *fullscreen,
 		crop:        *crop,
 		audioBuf:    audioBuf,
-		videoFilter: VideoFilterPixelPerfect, // Por defecto arrancamos con CRT Scanlines para máxima autenticidad
-		audioFilter: AudioFilterWarm,         // Por defecto altavoz cálido analógico
+		videoFilter: initialFilter,
+		audioFilter: AudioFilterWarm, // Por defecto altavoz cálido analógico
+		pipeline:    video.New(),
+		hdMode:      *hd,
 	}
 
 	if flag.NArg() > 0 {
@@ -1105,6 +938,7 @@ func main() {
 		}
 		g.state = StatePlaying
 		g.curTitle = cleanTitle(flag.Arg(0))
+		g.hdMode = *hd && machine.HD != nil && machine.HD.Active
 	} else {
 		cfg := loadConfig()
 		*romsDir = cfg.RomsDir

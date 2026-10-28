@@ -1,8 +1,11 @@
 package main
 
 import (
+	"image"
 	"image/color"
 	"testing"
+
+	"gosms/pkg/machine"
 )
 
 func TestDecodeColor(t *testing.T) {
@@ -55,5 +58,49 @@ func TestIsBlankTile(t *testing.T) {
 	nonBlank[17] = 1
 	if isBlankTile(nonBlank) {
 		t.Fatal("tile with pixel data should not be blank")
+	}
+}
+
+func TestMakeBackgroundObjectsDeduplicates(t *testing.T) {
+	tileMap := make([][]int, 16)
+	for y := range tileMap {
+		tileMap[y] = make([]int, 16)
+		for x := range tileMap[y] {
+			tileMap[y][x] = 0
+		}
+	}
+	tiles := []machine.TileManifest{{Hash: "tile", Index: 0}}
+	images := map[string]*image.RGBA{"tile": image.NewRGBA(image.Rect(0, 0, 8, 8))}
+	objects := make(map[string]*objectAccumulator)
+
+	makeBackgroundObjects(tileMap, 10, tiles, images, objects, 8, 0)
+	if len(objects) != 1 {
+		t.Fatalf("got %d objects, want 1 deduplicated block", len(objects))
+	}
+	for _, object := range objects {
+		if object.manifest.Kind != "background_object" {
+			t.Fatalf("kind = %q", object.manifest.Kind)
+		}
+		if object.manifest.FramesSeen != 4 {
+			t.Fatalf("FramesSeen = %d, want 4", object.manifest.FramesSeen)
+		}
+		if len(object.manifest.Tiles) != 64 {
+			t.Fatalf("tiles = %d, want 64", len(object.manifest.Tiles))
+		}
+	}
+}
+
+func TestMakeBackgroundObjectsSkipsEmptyBlocks(t *testing.T) {
+	tileMap := make([][]int, 8)
+	for y := range tileMap {
+		tileMap[y] = make([]int, 8)
+		for x := range tileMap[y] {
+			tileMap[y][x] = -1
+		}
+	}
+	objects := make(map[string]*objectAccumulator)
+	makeBackgroundObjects(tileMap, 0, nil, nil, objects, 8, 0)
+	if len(objects) != 0 {
+		t.Fatalf("empty background should not create objects: %d", len(objects))
 	}
 }
