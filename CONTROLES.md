@@ -16,6 +16,15 @@
 | `F11` | Pantalla completa |
 | `Esc` | Salir |
 
+### Menú con mando
+
+| Mando | Acción |
+| --- | --- |
+| D-pad / stick izquierdo | Elegir juego |
+| `A` / `Start` | Jugar |
+| `B` / `Back` | Salir |
+| A / Start / B / Back | Cerrar la ayuda |
+
 ### Juego
 
 | Tecla | Acción |
@@ -32,6 +41,8 @@
 | `F11` | Pantalla completa |
 | `F12` o `H` | Ayuda de controles (pausa la emulación) |
 | `Esc` | Volver al menú |
+
+En el juego, el mando usa D-pad/stick para mover y A/B como botones 1/2.
 
 ### Filtros de vídeo
 

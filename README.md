@@ -59,6 +59,7 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 | **Guardar Partida Rápida** | `F5` | — | — | — |
 | **Cargar Partida Rápida** | `F8` | — | — | — |
 | **Pantalla Completa** | `F11` | — | — | — |
+| **Ayuda de controles** | `F12` o `H` | — | — | Botón `CONTROLES` |
 | **Volver al Menú / Salir** | `Esc` | — | — | Botón `MENÚ` / atrás |
 | **Elegir / cambiar ROM** | — | — | — | `ELEGIR ROM` / `CAMBIAR ROM` |
 
@@ -67,6 +68,8 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 > Los mandos USB/Bluetooth se detectan en caliente: el menú muestra el modelo conectado y, en partida, aparece un aviso al conectar o desconectar.
 
 > El menú incluye **F12 / H → Controles** y un tutorial de primer arranque. Los ZIP de release incluyen `CONTROLES.md`.
+
+> En el menú, el mando también navega: **D-pad/stick** elige, **A/Start** juega y **B/Back/Esc** sale. El tutorial de controles se cierra con esos mismos botones.
 
 ---
 
@@ -106,6 +109,14 @@ Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaque
 ```bash
 make remaster ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 ```
+
+Para otras ROMs, el perfil de controles de Alex Kidd no sirve; usa `BOT=default` (corre a la derecha y salta):
+
+```bash
+make remaster ROM="roms/Sonic The Hedgehog (USA, Europe).sms" BOT=default
+```
+
+La extracción solo captura las escenas por las que pasa el bot (`FRAMES`, 6500 por defecto). En Sonic 1 cubrió título y Green Hill: **1663 composites**, **2866 tiles**, pack 4× al 100 % en unos 20 minutos. Para más zonas, sube `FRAMES` o usa level select/save states antes del volcado.
 
 Necesita Python 3 con `numpy` y `Pillow`. `make setup` crea `.venv-remaster/` con ambas.
 

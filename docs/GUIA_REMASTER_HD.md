@@ -59,6 +59,22 @@ make run ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 Y compara con **F10**. El paso 4 ya aplica el acabado de cine; los ajustes de
 paleta y grano están más abajo.
 
+### Otras ROMs
+
+El perfil de bot por defecto (`BOT=alex-kidd`) está pensado para Alex Kidd. Para
+Sonic u otros juegos usa `BOT=default`, que corre a la derecha y salta cada
+pocos frames:
+
+```bash
+make remaster ROM="roms/Sonic The Hedgehog (USA, Europe).sms" BOT=default
+```
+
+La extracción solo ve las escenas por las que pasa el bot. `FRAMES=6500` cubre
+título y Green Hill en Sonic 1 (1663 composites, 2866 tiles, ~20 minutos). Para
+más zonas sube `FRAMES` o llega antes con level select/save states. En juegos
+que no sean Alex Kidd Rev 1 no hay decodificación estática del layout: todo sale
+de las escenas capturadas.
+
 > El primer paso borra la carpeta de assets de esa ROM. Como todo se regenera desde la ROM, no se pierde nada que no puedas volver a calcular. Los overrides manuales de `remaster_workspace/tiles/` sí se pierden: cópialos fuera antes de repetir `make remaster`.
 
 ## Escala
@@ -122,6 +138,8 @@ El cielo se aplica solo con pack HD y los filtros **REMASTER 2026** o **CRT**;
 | Variable | Por defecto | Efecto |
 | --- | --- | --- |
 | `PACK_SCALE` | `4` | Resolución final del pack (4× o 8×). |
+| `BOT` | `alex-kidd` | Perfil de la extracción; `default` corre a la derecha y salta (Sonic y otros). |
+| `FRAMES` | `6500` | Frames emulados durante la extracción; más frames, más escenas. |
 
 Los ajustes de dibujo y de paleta están en la sección siguiente.
 
@@ -199,11 +217,14 @@ make preview ROM="..." PREVIEW_FILTER=modern PREVIEW_HD=true
 O dentro del juego:
 
 - **F10** alterna original y remaster.
+- **F12** o **H** abre la ayuda de controles (también el tutorial de primer arranque).
 - **F1** recorre los filtros de post-proceso. **REMASTER 2026** es el más
   completo (cielo y bloom); **SUAVIZADO** es el más ligero.
 - **P** o **Enter** pulsa PAUSE/START (en Alex Kidd abre el mapa e inventario).
 - Al conectar un mando USB/Bluetooth, el menú muestra el modelo y el juego avisa
   con un OSD al conectar o desconectar.
+- En el menú, **D-pad/stick** elige, **A/Start** juega y **B/Back/Esc** sale; el
+  tutorial se cierra con esos mismos botones.
 
 Para capturar esa pantalla sin abrir la ventana, `cmd/preview` acepta `-pause`
 con el frame en el que quieres pulsar PAUSE:
@@ -222,3 +243,6 @@ go run ./cmd/preview -frames 900 -pause 600 -filter modern -hd \
   graduar.
 - El texto y el HUD no se vectorizan aparte: si aparecen en un composite, se suavizan como cualquier otra región.
 - Los packs 8× ocupan bastante más en disco y en memoria de vídeo.
+- La cobertura del pack son las escenas que alcanza el bot de extracción; las
+  zonas no visitadas siguen usando los gráficos originales hasta que las
+  captures con `FRAMES`/level select.
