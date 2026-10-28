@@ -15,7 +15,7 @@ var (
 	fallbackSprBuf = make([]byte, 8*8*4)
 )
 
-func drawFallbackSprite(screen *ebiten.Image, tileData []byte, cram []byte, drawX, drawY, scale float64) {
+func (hd *HDRenderer) drawFallbackSprite(screen *ebiten.Image, tileData []byte, cram []byte, drawX, drawY, scale float64) {
 	pal := make([]color.RGBA, 16)
 	for i := 0; i < 16; i++ {
 		pal[i] = decodeColorVDP(cram[i])
@@ -36,7 +36,7 @@ func drawFallbackSprite(screen *ebiten.Image, tileData []byte, cram []byte, draw
 				fallbackSprBuf[idx+2] = 0
 				fallbackSprBuf[idx+3] = 0
 			} else {
-				c := pal[cIdx&0x0F]
+				c := hd.GradeColor(pal[cIdx&0x0F])
 				fallbackSprBuf[idx] = c.R
 				fallbackSprBuf[idx+1] = c.G
 				fallbackSprBuf[idx+2] = c.B
@@ -58,6 +58,7 @@ func drawFallbackSprite(screen *ebiten.Image, tileData []byte, cram []byte, draw
 
 type bgDrawItem struct {
 	img          *ebiten.Image
+	himg         *ebiten.Image
 	drawX, drawY float64
 	sX, sY       float64
 	tX, tY       float64
@@ -67,7 +68,9 @@ type bgDrawItem struct {
 // The destination is usually an offscreen texture whose width matches
 // (256-cropLeft)*scale. destX/destY let callers place the layer directly on a
 // larger screen when needed.
-func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen *ebiten.Image, scale, destX, destY float64, crop bool) {
+// heightDst recibe el mapa de altura con la misma geometria que screen. Puede
+// ser nil: entonces solo se compone el color.
+func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, scale, destX, destY float64, crop bool) {
 	if hd == nil || !hd.Active || v == nil || screen == nil || hd.Scale < 1 {
 		return
 	}
@@ -86,7 +89,7 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen *ebiten.Image, scale, destX, 
 	hdScale := scale / float64(hd.Scale)
 
 	// 1. Telón de fondo SMS
-	backdropCol := decodeColorVDP(v.CRAM[16+int(v.Reg[7]&0x0F)])
+	backdropCol := hd.GradeColor(decodeColorVDP(v.CRAM[16+int(v.Reg[7]&0x0F)]))
 	viewW := float32(float64(vdp.ScreenW-minX) * scale)
 	viewH := float32(float64(vdp.ScreenH) * scale)
 	vector.DrawFilledRect(screen, float32(destX), float32(destY), viewW, viewH, backdropCol, false)
@@ -137,6 +140,10 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen *ebiten.Image, scale, destX, 
 			cram := v.CRAM[palOffset : palOffset+16]
 
 			img := hd.GetHDTile(tileData, cram, false)
+			var himg *ebiten.Image
+			if heightDst != nil {
+				himg = hd.GetHDHeight(tileData, cram, false)
+			}
 			if img != nil {
 				drawX := math.Floor(destX + (float64(tileDrawX)-cropOffset)*scale)
 				drawY := math.Floor(destY + float64(tileDrawY)*scale)
@@ -154,6 +161,7 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen *ebiten.Image, scale, destX, 
 
 				item := bgDrawItem{
 					img:   img,
+					himg:  himg,
 					drawX: drawX, drawY: drawY,
 					sX: sX, sY: sY,
 					tX: tX, tY: tY,
@@ -174,6 +182,9 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen *ebiten.Image, scale, destX, 
 		op.GeoM.Translate(item.tX, item.tY)
 		op.GeoM.Translate(item.drawX, item.drawY)
 		screen.DrawImage(item.img, op)
+		if heightDst != nil && item.himg != nil {
+			heightDst.DrawImage(item.himg, op)
+		}
 	}
 
 	// Capa 1: Fondo Normal
@@ -211,6 +222,13 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen *ebiten.Image, scale, destX, 
 		sprites = append(sprites, sprItem{x: sx, y: sy, tile: tile})
 	}
 
+	type spriteDraw struct {
+		img  *ebiten.Image
+		op   *ebiten.DrawImageOptions
+		himg *ebiten.Image
+	}
+	var spriteDraws []spriteDraw
+
 	for i := len(sprites) - 1; i >= 0; i-- {
 		s := sprites[i]
 		parts := 1
@@ -238,10 +256,42 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen *ebiten.Image, scale, destX, 
 				op.Filter = ebiten.FilterLinear
 				op.GeoM.Scale(hdScale, hdScale)
 				op.GeoM.Translate(drawX, drawY)
-				screen.DrawImage(img, op)
+				var himg *ebiten.Image
+				if heightDst != nil {
+					himg = hd.GetHDHeight(tileData, sprCram, true)
+				}
+				spriteDraws = append(spriteDraws, spriteDraw{img: img, op: op, himg: himg})
 			} else {
-				drawFallbackSprite(screen, tileData, sprCram, drawX, drawY, scale)
+				hd.drawFallbackSprite(screen, tileData, sprCram, drawX, drawY, scale)
 			}
+		}
+	}
+
+	// Sombra proyectada de los sprites. Se dibuja en una pasada previa para que
+	// los tiles de una misma figura no se ensucien entre ellos. Solo tiene
+	// sentido con pack HD y luz: es la sombra la que "apoya" el sprite.
+	if heightDst != nil && len(spriteDraws) > 0 {
+		offset := 8 * scale * 0.24
+		samples := [][3]float64{
+			{offset, offset * 1.1, 0.55},
+			{offset - 2, offset*1.1 - 2, 0.24},
+			{offset + 2, offset*1.1 + 2, 0.18},
+			{offset + 4, offset*1.1 + 4, 0.08},
+		}
+		for _, item := range spriteDraws {
+			for _, s := range samples {
+				op := *item.op
+				op.GeoM.Translate(s[0], s[1])
+				op.ColorScale.Scale(0, 0, 0, float32(s[2]))
+				screen.DrawImage(item.img, &op)
+			}
+		}
+	}
+
+	for _, item := range spriteDraws {
+		screen.DrawImage(item.img, item.op)
+		if heightDst != nil && item.himg != nil {
+			heightDst.DrawImage(item.himg, item.op)
 		}
 	}
 

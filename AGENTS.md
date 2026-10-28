@@ -12,7 +12,7 @@ GoSMS is a Sega Master System emulator written in Go (module `gosms`). Core emul
 - `make run ROM=roms/game.sms` builds and starts the emulator with a ROM.
 - `make objects ROM=roms/game.sms FRAMES=6500` removes the prior output for that ROM, then extracts tiles and scenes. Alex Kidd Rev 1 layouts are decoded statically from ROM data; `FRAMES` only controls supplemental sprite sampling.
 - `make remaster ROM=...` wipes the ROM's assets, extracts them, vectorises every object and packs the HD sheet in one go.
-- `make unpack ROM=...`, `make cinematic ROM=...`, and `make pack ROM=...` run those steps individually. The remaster is purely geometric (signed distance fields, anti-aliasing, bevelled lighting); there are no models or downloads.
+- `make unpack ROM=...`, `make cinematic ROM=...`, and `make pack ROM=...` run those steps individually. The remaster is purely geometric (signed distance fields, anti-aliasing, height maps lit at runtime); there are no models or downloads.
 - `make cinematic ROM=...` remasters the whole catalogue with the cinematic palette in `tools/grades.py` (`CINE_MATCH=sprite_` limits it to sprites).
 - `make preview ROM=...` renders a single frame for comparison. `make setup` creates `.venv-remaster` with numpy and Pillow.
 - `go run ./cmd/headless -frames 120 -out frame.png roms/game.sms` renders frames without the desktop UI.

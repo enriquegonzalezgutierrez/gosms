@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 
+import grades
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageOps
 
 
@@ -217,6 +218,39 @@ def unpack(rom_name):
     print("👉 Remasteriza los PNG de input/objects/ y guarda los resultados en objects/ sin cambiar el tamaño.")
 
 
+def write_palette(hd_dir, work_dir):
+    """Guarda el color de los 64 registros CRAM ya graduados.
+
+    El fondo del VDP no es un tile: lo pinta el registro 7 sobre el que se
+    dibujan los tiles. Sin este mapa, el cielo conserva el azul puro de la
+    consola mientras el resto de la escena usa la paleta de cine.
+    """
+    grade_name = "none"
+    marker = os.path.join(work_dir, "grade.json")
+    if os.path.exists(marker):
+        try:
+            with open(marker, encoding="utf-8") as source:
+                grade_name = json.load(source).get("name", "none")
+        except (OSError, ValueError):
+            grade_name = "none"
+    grade = grades.GRADES.get(grade_name)
+    colors = {}
+    for code in range(64):
+        rgb = ((code & 3) * 85, ((code >> 2) & 3) * 85, ((code >> 4) & 3) * 85)
+        tinted = grade(rgb) if grade else rgb
+        colors["%d,%d,%d" % rgb] = [int(c) for c in tinted[:3]]
+    with open(os.path.join(hd_dir, "palette.json"), "w", encoding="utf-8") as output:
+        json.dump({"grade": grade_name, "colors": colors}, output, indent=2, ensure_ascii=False)
+
+
+def load_height_map(path, size):
+    """Carga el mapa de altura (L) de un tile u objeto, o None si no existe."""
+    if not os.path.exists(path):
+        return None
+    with Image.open(path) as source:
+        return source.convert("L").resize(size, Image.Resampling.BILINEAR)
+
+
 def paste_with_gutter(sheet, tile, x, y):
     sheet.paste(tile, (x + PADDING, y + PADDING))
     sheet.paste(tile.crop((0, 0, 1, TILE_SIZE)).resize((PADDING, TILE_SIZE)), (x, y + PADDING))
@@ -243,6 +277,7 @@ def pack(rom_name):
     original_sheet = Image.open(original_sheet_path).convert("RGBA") if os.path.exists(original_sheet_path) else None
 
     remastered = {}
+    heights = {}
     conflicts = []
     conflict_sources = {}
 
@@ -252,6 +287,7 @@ def pack(rom_name):
         source = load_original_tile(item, tile_dir, original_sheet)
         if source is not None:
             remastered[index] = source.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.NEAREST)
+        heights[index] = None
 
     # Per-tile neural fallback. It covers tiles that no coherent object reaches,
     # but object composites still take precedence below.
@@ -264,6 +300,10 @@ def pack(rom_name):
             with Image.open(fallback) as source:
                 remastered[index] = source.convert("RGBA").resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
             fallback_tiles.add(index)
+            heights[index] = load_height_map(
+                os.path.join(work_dir, "heights", "tile_fallback", tile_filename(item)),
+                (TILE_SIZE, TILE_SIZE),
+            )
     fallback_count = len(fallback_tiles)
 
     object_tiles = {}
@@ -294,6 +334,9 @@ def pack(rom_name):
         with Image.open(path) as source:
             original_size = source.size
         composite = load_remastered_object(path, reference_path, expected_size)
+        height_composite = load_height_map(
+            os.path.join(work_dir, "heights", "objects", f"{obj['id']}.png"), expected_size,
+        )
         if original_size != expected_size:
             print(f"🔎 Adaptando {os.path.basename(path)}: {original_size[0]}x{original_size[1]} → {expected_size[0]}x{expected_size[1]} (cuadrícula {SCALE}x)")
         for placement in obj.get("tiles", []):
@@ -310,6 +353,8 @@ def pack(rom_name):
                 continue
             object_tiles[index] = crop
             object_owners[index] = obj["id"]
+            if height_composite is not None:
+                heights[index] = height_composite.crop((x, y, x + TILE_SIZE, y + TILE_SIZE))
     remastered.update(object_tiles)
 
     # An explicit per-tile override takes precedence over any grouped object.
@@ -322,6 +367,10 @@ def pack(rom_name):
             with Image.open(override) as source:
                 remastered[index] = source.convert("RGBA").resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
             override_tiles.add(index)
+            heights[index] = load_height_map(
+                os.path.join(work_dir, "heights", "tiles", tile_filename(item)),
+                (TILE_SIZE, TILE_SIZE),
+            )
 
     covered_tiles = fallback_tiles | set(object_tiles) | override_tiles
     nearest_count = max(0, len(tiles) - len(covered_tiles))
@@ -334,8 +383,10 @@ def pack(rom_name):
         placed = [(item, remastered[item["index"]]) for item in tiles if item["index"] in remastered]
         page_count = max(1, math.ceil(len(placed) / capacity))
         pages = [Image.new("RGBA", (PAGE_SIZE, PAGE_SIZE), (0, 0, 0, 0)) for _ in range(page_count)]
+        height_pages = [Image.new("L", (PAGE_SIZE, PAGE_SIZE), 0) for _ in range(page_count)]
         page_tiles = []
         page_names = []
+        height_page_names = []
         pages_dir = os.path.join(hd_dir, "pages")
         os.makedirs(pages_dir, exist_ok=True)
 
@@ -347,6 +398,9 @@ def pack(rom_name):
             x = col * CELL
             y = row * CELL
             paste_with_gutter(pages[page_index], tile, x, y)
+            height_tile = heights.get(item["index"])
+            if height_tile is not None:
+                paste_with_gutter(height_pages[page_index], height_tile, x, y)
             page_tiles.append({
                 "hash": item["hash"],
                 "page": page_index,
@@ -361,6 +415,9 @@ def pack(rom_name):
             name = f"pages/page_{page_index:03d}.png"
             page.save(os.path.join(hd_dir, name))
             page_names.append({"file": name, "width": PAGE_SIZE, "height": PAGE_SIZE})
+            hname = f"pages/height_{page_index:03d}.png"
+            height_pages[page_index].save(os.path.join(hd_dir, hname))
+            height_page_names.append({"file": hname, "width": PAGE_SIZE, "height": PAGE_SIZE})
 
         pack_document = {
             "version": 2,
@@ -368,6 +425,7 @@ def pack(rom_name):
             "scale": SCALE,
             "tile_size": 8,
             "pages": page_names,
+            "height_pages": height_page_names,
             "tiles": page_tiles,
             "objects": document.get("objects", []),
             "scenes": document.get("scenes", []),
@@ -377,6 +435,7 @@ def pack(rom_name):
 
         # Remove the old single-sheet pack so the runtime does not silently
         # fall back to stale art if a page cannot be loaded.
+        write_palette(hd_dir, work_dir)
         stale_sheet = os.path.join(hd_dir, "spritesheet.png")
         if os.path.exists(stale_sheet):
             os.remove(stale_sheet)
@@ -387,6 +446,7 @@ def pack(rom_name):
         print(f"📊 Cobertura: {len(covered_tiles)}/{len(tiles)} tiles ({coverage:.1f}%): "
               f"{fallback_count} fallback, {len(object_tiles)} objetos, {len(override_tiles)} overrides; {nearest_count} nearest")
     else:
+        write_palette(hd_dir, work_dir)
         cols = 32
         rows = max(1, (len(tiles) + cols - 1) // cols)
         sheet = Image.new("RGBA", (cols * CELL, rows * CELL), (0, 0, 0, 0))
@@ -400,6 +460,16 @@ def pack(rom_name):
             paste_with_gutter(sheet, tile, x, y)
 
         sheet.save(os.path.join(hd_dir, "spritesheet.png"))
+
+        height_sheet = Image.new("L", sheet.size, 0)
+        for item in tiles:
+            height_tile = heights.get(item["index"])
+            if height_tile is None:
+                continue
+            hx = (item["index"] % cols) * CELL
+            hy = (item["index"] // cols) * CELL
+            paste_with_gutter(height_sheet, height_tile, hx, hy)
+        height_sheet.save(os.path.join(hd_dir, "heights.png"))
         with open(os.path.join(hd_dir, "manifest.json"), "w", encoding="utf-8") as output:
             json.dump(document, output, indent=2, ensure_ascii=False)
         print(f"✨ Pack HD v1 listo: {len(remastered)}/{len(tiles)} tiles en {hd_dir}/spritesheet.png (escala {SCALE}x)")

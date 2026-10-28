@@ -41,13 +41,15 @@ func (g *game) hdFrameSource() (*ebiten.Image, image.Rectangle) {
 	}
 	if g.hdTarget == nil || g.hdTarget.Bounds().Dx() != w || g.hdTarget.Bounds().Dy() != h {
 		g.hdTarget = ebiten.NewImage(w, h)
+		g.hdHeight = ebiten.NewImage(w, h)
 	} else {
 		g.hdTarget.Clear()
+		g.hdHeight.Clear()
 	}
 	// drawHDLayer uses the same coordinate system as the emulated 256x192
 	// screen, scaled by the pack factor. Passing 0,0 as the destination keeps
 	// the composed layer aligned with its own texture.
-	g.drawHDLayer(g.hdTarget, float64(hd.Scale), 0, 0)
+	g.drawHDLayer(g.hdTarget, g.hdHeight, float64(hd.Scale), 0, 0)
 	return g.hdTarget, image.Rect(0, 0, w, h)
 }
 
@@ -134,6 +136,9 @@ func (g *game) pipelineOptions() video.Options {
 		preset = video.PresetPixelPerfect
 	}
 	opts := video.DefaultOptions(preset, g.hdMode)
+	if g.hdMode && g.hdHeight != nil && machine.HD != nil && machine.HD.HasHeight {
+		opts.Height = g.hdHeight
+	}
 	if g.videoFilter == VideoFilterScanlines {
 		// Keep the old scanline filter semantics: only the grid, no bloom or
 		// colour grading. This makes the two modes easy to compare.

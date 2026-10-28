@@ -24,7 +24,7 @@ def filmic(rgb):
     frias y luces calidas."""
     colour = np.asarray(rgb[:3], dtype=np.float32) / 255.0
     luma = 0.2126 * colour[0] + 0.7152 * colour[1] + 0.0722 * colour[2]
-    colour = luma + (colour - luma) * 1.10
+    colour = luma + (colour - luma) * 1.0
     colour = np.clip(colour, 0.0, 1.0) ** 1.06
     warm = np.array([0.012, 0.004, -0.012], dtype=np.float32)
     cool = np.array([-0.008, 0.000, 0.014], dtype=np.float32)

@@ -125,6 +125,8 @@ func main() {
 	hd := flag.Bool("hd", false, "usar el pack HD de assets/<ROM>/hd")
 	crop := flag.Bool("crop", true, "recortar los 8 píxeles de overscan izquierdo")
 	filter := flag.String("filter", "modern", "pixel, smooth, modern, crt, scanlines o mono")
+	light := flag.String("light", "", "luz de relieve en pantalla como \"x,y\" (por defecto la del preset)")
+	noHeight := flag.Bool("noheight", false, "desactiva la iluminacion por mapa de altura")
 	flag.Parse()
 	if flag.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "Uso: preview [opciones] <rom.sms>")
@@ -135,6 +137,14 @@ func main() {
 		os.Exit(2)
 	}
 	preset, onlyScanlines := parsePreset(*filter)
+	lightX, lightY, hasLight := 0.0, 0.0, false
+	if *light != "" {
+		var lx, ly float64
+		if _, err := fmt.Sscanf(*light, "%f,%f", &lx, &ly); err != nil {
+			log.Fatalf("luz no valida %q: usa \"x,y\"", *light)
+		}
+		lightX, lightY, hasLight = lx, ly, true
+	}
 
 	romPath := flag.Arg(0)
 	rom, err := os.ReadFile(romPath)
@@ -148,6 +158,7 @@ func main() {
 	}
 
 	var src *ebiten.Image
+	var heightLayer *ebiten.Image
 	var srcRect image.Rectangle
 	if *hd {
 		machine.InitHD(romPath)
@@ -161,7 +172,8 @@ func main() {
 		w := (vdp.ScreenW - minX) * machine.HD.Scale
 		h := vdp.ScreenH * machine.HD.Scale
 		layer := ebiten.NewImage(w, h)
-		machine.HD.DrawLayer(m.VDP, layer, float64(machine.HD.Scale), 0, 0, *crop)
+		heightLayer = ebiten.NewImage(w, h)
+		machine.HD.DrawLayer(m.VDP, layer, heightLayer, float64(machine.HD.Scale), 0, 0, *crop)
 		src = layer
 		srcRect = image.Rect(0, 0, w, h)
 	} else {
@@ -181,6 +193,13 @@ func main() {
 	dstRect := image.Rect((*width-dstW)/2, (*height-dstH)/2, (*width-dstW)/2+dstW, (*height-dstH)/2+dstH)
 
 	opts := video.DefaultOptions(preset, *hd)
+	if *hd && machine.HD != nil && machine.HD.HasHeight && !*noHeight {
+		opts.Height = heightLayer
+	}
+	if hasLight {
+		opts.ReliefLightX = float32(lightX)
+		opts.ReliefLightY = float32(lightY)
+	}
 	if onlyScanlines {
 		opts.Bloom = 0
 		opts.Sharpness = 0

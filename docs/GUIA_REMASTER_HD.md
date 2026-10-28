@@ -1,6 +1,7 @@
 # Remaster HD sin IA: vectorización y volumen
 
-Esta guía explica cómo GoSMS genera un pack de gráficos en alta definición a partir de una ROM, **sin modelos de IA y sin descargas**. Todo el proceso es geometría: campos de distancia, antialiasing y una luz fija.
+Esta guía explica cómo GoSMS genera un pack de gráficos en alta definición a partir de una ROM, **sin modelos de IA y sin descargas**. Todo el proceso es geometría: campos de distancia, antialiasing y un mapa de
+altura que el emulador ilumina en tiempo real.
 
 Al terminar tendrás el juego con los gráficos remasterizados y podrás comparar con el original usando **F10**.
 
@@ -11,6 +12,8 @@ Hace:
 - elimina el escalón de bloque de cada contorno (el borde deja de ser una escalera);
 - suaviza las esquinas con antialiasing real;
 - convierte cada color plano en una superficie con volumen, bisel y brillo;
+- guarda la altura de cada pieza para que la luz se calcule en pantalla, con
+  especular, contraluz y sombra de los sprites;
 - rompe la uniformidad de las zonas grandes con un grano suave;
 - conserva la paleta, el dibujo, la pose y la posición exactos.
 
@@ -74,10 +77,46 @@ Cada composite se reduce primero a la **rejilla real de píxeles de juego** (por
 
 1. **Campo de distancia con signo (SDF)** por cada color de la paleta. Un contorno deja de ser una lista de escalones y pasa a ser una isolínea: la frontera entre distancia positiva y negativa.
 2. **Antialiasing por cobertura**: el color se mezcla según `clip(sdf·escala + 0,5, 0, 1)`. En vez de píxeles encendidos o apagados hay cobertura fraccionaria, así que el borde queda limpio a cualquier escala.
-3. **Volumen**: la misma SDF da la altura de la región. Su gradiente produce un campo de normales y se ilumina con Lambert + especular + oclusión aproximada, con una luz fija arriba a la izquierda.
-4. **Grano**: un ruido de valor suave modula el albedo para que las zonas grandes no queden muertas.
+3. **Albedo plano**: el color de salida es el color de la paleta (con el grado de cine y el grano), **sin luz horneada**. Así la iluminación se puede cambiar sin volver a generar el pack.
+4. **Mapa de altura**: la misma SDF mide cuánto está una región hacia dentro de su borde. Se normaliza por el radio del bisel y se guarda como un PNG en escala de grises paralelo al color, con el mismo layout (`pages/height_XXX.png` en los packs paginados).
+5. **Grano**: un ruido de valor suave modula el albedo para que las zonas grandes no queden muertas.
 
 Los tiles sueltos se procesan con el borde replicado, de modo que el bisel no dibuja una línea de rejilla en cada unión.
+
+## Iluminación en el emulador
+
+El pack lleva dos capas: color (albedo) y altura. En cada fotograma el emulador
+compone las dos con la misma geometría y un shader (`pkg/video/shaders/heightlight.kage`)
+reconstruye la normal con el gradiente de altura:
+
+- **Luz direccional** desde arriba a la izquierda, igual para fondos y sprites;
+- **especular** ajustable y **contraluz** en los bordes inclinados;
+- **oclusión de grietas**: donde el gradiente es fuerte (unión entre piezas) se
+  oscurece un poco, lo que da contacto sin un pase de sombras;
+- **sombra proyectada** de los sprites sobre el fondo, desplazada hacia abajo a
+  la derecha y con penumbra de cuatro muestras.
+
+La referencia de la luz es la superficie plana: una zona sin altura conserva su
+color exacto en vez de oscurecerse. Eso incluye el fondo del VDP y los tiles en
+blanco que el juego usa como cielo.
+
+El pack guarda además `palette.json` con los 64 colores CRAM ya graduados. El
+cielo de Alex Kidd no es el registro de fondo: son tiles vacíos que el emulador
+pinta con el color 0 de la paleta. Sin ese mapa, el cielo se quedaba en azul
+eléctrico mientras el resto de la escena usaba la paleta de cine.
+
+El pase se aplica solo con pack HD. El filtro **REMASTER 2026** lo activa junto
+al bloom y el tone mapping; **SUAVIZADO** deja ver el albedo plano para comparar.
+
+Para probar otra dirección de luz sin tocar código:
+
+```bash
+go run ./cmd/preview -frames 900 -filter modern -hd \
+  -light "-0.38,-0.72" -out preview.png "roms/juego.sms"
+```
+
+`-light` son los dos componentes de la dirección en pantalla (x derecha, y
+abajo); `-noheight` desactiva el pase para ver el albedo.
 
 ## Ajustes
 
@@ -131,10 +170,12 @@ comando es todo lo necesario para probar otra dirección.
 | `original/` | Extracción de la ROM: tiles, manifiesto y escenas. No la edites. |
 | `remaster_workspace/input/objects/` | Composites de partida, uno por objeto. Son la entrada del vectorizador. |
 | `remaster_workspace/objects/` | Resultado vectorizado. Aquí puedes poner tus propios PNG. |
+| `remaster_workspace/heights/objects/` | Mapa de altura de cada composite, con el mismo tamaño. |
 | `remaster_workspace/tile_fallback/` | Resultado por tile, para lo que no cubre ningún composite. |
+| `remaster_workspace/heights/tile_fallback/` | Altura de esos tiles sueltos. |
 | `remaster_workspace/tiles/` | Overrides manuales de un tile suelto. Tienen prioridad sobre todo lo demás. |
 | `remaster_workspace/scenes/` | Vistas de nivel para reconocer dónde aparece cada gráfico. Solo referencia. |
-| `hd/` | El pack que consume el emulador. |
+| `hd/` | El pack que consume el emulador: color, alturas y `palette.json` con el fondo graduado. |
 
 ## Prioridad al empaquetar
 

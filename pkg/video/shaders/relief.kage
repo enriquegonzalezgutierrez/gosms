@@ -1,0 +1,56 @@
+//kage:unit pixels
+package main
+
+// Iluminacion de relieve en pantalla. No necesita mapas de normales: deduce la
+// normal del gradiente de luminancia de la propia imagen, que en el pack HD ya
+// sigue el bisel de cada pieza. El resultado es una luz direccional coherente
+// sobre todo el fotograma (fondo, sprites y tiles) con especular y contraluz.
+
+var Step vec2      // separacion del gradiente, en pixeles de destino
+var Light vec2     // direccion de la luz en pantalla (x derecha, y abajo)
+var Ambient float  // luz base, evita zonas negras
+var Diffuse float  // peso de la luz clave
+var Specular float // intensidad del brillo
+var Gloss float    // dureza del brillo
+var Rim float      // contraluz en los bordes
+var Relief float   // exagera el relieve
+
+func lum(c vec3) float {
+	return dot(c, vec3(0.299, 0.587, 0.114))
+}
+
+func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
+	c := imageSrc0At(src0Pos)
+	if c.a < 0.002 {
+		return c
+	}
+
+	origin := imageSrc0Origin()
+	limit := imageSrc0Size() - vec2(0.001)
+	pos := src0Pos - origin
+	cl := imageSrc0At(origin + clamp(pos-vec2(Step.x, 0.0), vec2(0.0), limit))
+	cr := imageSrc0At(origin + clamp(pos+vec2(Step.x, 0.0), vec2(0.0), limit))
+	cu := imageSrc0At(origin + clamp(pos-vec2(0.0, Step.y), vec2(0.0), limit))
+	cd := imageSrc0At(origin + clamp(pos+vec2(0.0, Step.y), vec2(0.0), limit))
+
+	// Las zonas transparentes no deben inclinar la normal: se ponderan por alfa.
+	wl := cl.a
+	wr := cr.a
+	wu := cu.a
+	wd := cd.a
+	dx := (lum(cr.rgb)*wr - lum(cl.rgb)*wl) * Relief
+	dy := (lum(cd.rgb)*wd - lum(cu.rgb)*wu) * Relief
+
+	n := normalize(vec3(-dx, -dy, 1.0))
+	l := normalize(vec3(Light, 1.15))
+	half := normalize(l + vec3(0.0, 0.0, 1.0))
+
+	diff := max(dot(n, l), 0.0)
+	spec := pow(max(dot(n, half), 0.0), Gloss) * Specular
+	rim := pow(1.0-clamp(n.z, 0.0, 1.0), 3.0) * Rim
+
+	shade := Ambient + Diffuse*diff
+	rgb := c.rgb*shade + (spec+rim)*c.a
+
+	return vec4(clamp(rgb, vec3(0.0), vec3(c.a)), c.a)
+}

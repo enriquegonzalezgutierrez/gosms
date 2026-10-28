@@ -91,7 +91,7 @@ make audit
 
 ### Remasterizar una ROM
 
-El remaster es **matemático, sin IA**: vectoriza cada objeto con campos de distancia, aplica antialiasing real y le da volumen con una luz fija. No descarga modelos y es determinista.
+El remaster es **matemático, sin IA**: vectoriza cada objeto con campos de distancia, aplica antialiasing real y guarda un mapa de altura. El emulador usa ese mapa para iluminar la escena en tiempo real: luz direccional, especular, contraluz y sombra de los sprites. No descarga modelos y es determinista.
 
 Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaqueta):
 
@@ -121,6 +121,8 @@ Si prefieres el acabado de cine (pelo castaño, piel tostada, blanco hueso y car
 make cinematic ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 make pack ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 ```
+
+El pack lleva color y altura en paralelo; el filtro **REMASTER 2026** combina esa luz con bloom y tone mapping, y **F10** compara con el original. Para probar otra dirección de luz, `cmd/preview` acepta `-light "x,y"` y `-noheight`.
 
 La extracción agrupa bloques de fondo de 8×8 tiles para vectorizar escenarios completos en vez de tiles aislados. Usa `BG_GROUP=0` para desactivarlos o `BG_PROTECT=3` para proteger más filas del HUD.
 

@@ -91,7 +91,7 @@ func TestDrawLayerSmoke(t *testing.T) {
 	}
 	hd := &HDRenderer{Active: true, Scale: 4, TileMap: map[string]*ebiten.Image{}}
 	dst := ebiten.NewImage((vdp.ScreenW-8)*4, vdp.ScreenH*4)
-	hd.DrawLayer(v, dst, 4, 0, 0, true)
+	hd.DrawLayer(v, dst, nil, 4, 0, 0, true)
 	if dst.Bounds().Dx() != (vdp.ScreenW-8)*4 {
 		t.Fatalf("unexpected destination size: %v", dst.Bounds())
 	}

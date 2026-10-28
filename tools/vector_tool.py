@@ -146,7 +146,8 @@ def value_noise(logical_size, seed):
     return grid
 
 
-def render(rgba, scale, bevel, light, noise, pad_edges, supersample=2, grade=None):
+def render(rgba, scale, bevel, light, noise, pad_edges, supersample=2, grade=None,
+           flat=False, want_height=False):
     """Devuelve la imagen remasterizada a ``scale`` x la rejilla logica."""
     block = detect_block_size(rgba)
     logical = rgba[::block, ::block]
@@ -164,7 +165,8 @@ def render(rgba, scale, bevel, light, noise, pad_edges, supersample=2, grade=Non
 
     colors = palette_of(logical)
     if not colors:
-        return Image.new("RGBA", out_size, (0, 0, 0, 0))
+        blank = Image.new("RGBA", out_size, (0, 0, 0, 0))
+        return (blank, Image.new("L", out_size, 0)) if want_height else blank
     if len(colors) > 24:
         colors = colors[:24]
 
@@ -251,9 +253,23 @@ def render(rgba, scale, bevel, light, noise, pad_edges, supersample=2, grade=Non
         grain = resize_float(value_noise((width, height), 1234), out_size)[..., np.newaxis]
         albedo = albedo * (1.0 + noise * (grain - 0.5) * 2.0)
 
-    rgb = albedo * (shade * ambient_occlusion)[..., np.newaxis]
-    rgb = rgb + specular[..., np.newaxis] + rim[..., np.newaxis]
-    rgb = np.clip(rgb, 0.0, 1.0) * 255.0
+    if flat:
+        # Sin luz horneada: el color es albedo puro y toda la iluminacion se
+        # calcula en el shader a partir del mapa de altura.
+        rgb = np.clip(albedo, 0.0, 1.0) * 255.0
+    else:
+        rgb = albedo * (shade * ambient_occlusion)[..., np.newaxis]
+        rgb = rgb + specular[..., np.newaxis] + rim[..., np.newaxis]
+        rgb = np.clip(rgb, 0.0, 1.0) * 255.0
 
     out = np.dstack((rgb, coverage * 255.0)).astype(np.uint8)
-    return Image.fromarray(out, mode="RGBA")
+    image = Image.fromarray(out, mode="RGBA")
+    if not want_height:
+        return image
+
+    # Altura normalizada: 255 en el interior de una region y 0 en su borde, con
+    # el bisel como radio. Es lo que convierte el dibujo plano en volumen.
+    span = max(0.05, bevel) * scale
+    height_norm = np.clip(first / span, 0.0, 1.0) * coverage
+    height_img = Image.fromarray((height_norm * 255.0).astype(np.uint8), mode="L")
+    return image, height_img

@@ -422,6 +422,7 @@ type game struct {
 	// Pipeline de post-procesado compartido con Android.
 	pipeline *video.Pipeline
 	hdTarget *ebiten.Image
+	hdHeight *ebiten.Image
 
 	// Filtros de post-procesado
 	videoFilter VideoFilter

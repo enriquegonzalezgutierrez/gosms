@@ -8,6 +8,7 @@ bisel y luz) con la paleta de cine aplicada a cada region antes de sombrear.
 """
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -44,18 +45,31 @@ def parse_args():
     parser.add_argument("--noise", type=float, default=0.03, help="Amplitud del grano")
     parser.add_argument("--supersample", type=int, default=2,
                         help="Muestras por pixel de juego en la fase de color (1 desactiva)")
+    parser.add_argument("--shaded", action="store_true",
+                        help="Hornea la luz en el PNG (modo antiguo) en vez de dejar albedo plano")
+    parser.add_argument("--no-heights", dest="heights", action="store_false", default=True,
+                        help="No genera el mapa de altura para la iluminacion en GPU")
     return parser.parse_args()
 
 
-def render_file(source, target, args, scale, grade):
+def render_file(source, target, args, scale, grade, height_target=None):
     with Image.open(source) as image:
         rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8)
     started = time.monotonic()
+    want_height = height_target is not None
     result = vector_tool.render(
         rgba, scale, args.bevel, args.light, args.noise, None, args.supersample, grade,
+        flat=not args.shaded, want_height=want_height,
     )
+    if want_height:
+        image_out, height_out = result
+    else:
+        image_out = result
     os.makedirs(os.path.dirname(target), exist_ok=True)
-    result.save(target, format="PNG", optimize=False, compress_level=3)
+    image_out.save(target, format="PNG", optimize=False, compress_level=3)
+    if want_height:
+        os.makedirs(os.path.dirname(height_target), exist_ok=True)
+        height_out.save(height_target, format="PNG", optimize=False, compress_level=3)
     return time.monotonic() - started
 
 
@@ -67,7 +81,9 @@ def main():
     work = os.path.join(root, "remaster_workspace")
     source_dir = os.path.join(work, "input", "objects")
     object_dir = os.path.join(work, "objects")
+    height_object_dir = os.path.join(work, "heights", "objects")
     fallback_dir = os.path.join(work, "tile_fallback")
+    height_fallback_dir = os.path.join(work, "heights", "tile_fallback")
     tile_dir = os.path.join(root, "original", "tiles")
     if not os.path.isdir(source_dir):
         sys.exit(f"No existe {source_dir}; ejecuta make unpack primero")
@@ -89,8 +105,14 @@ def main():
     if args.limit:
         sources = sources[:args.limit]
 
+    # El empaquetador lee esta marca para graduar tambien el fondo del VDP.
+    os.makedirs(work, exist_ok=True)
+    with open(os.path.join(work, "grade.json"), "w", encoding="utf-8") as output:
+        json.dump({"name": "cinematic"}, output)
+
     print(
-        f"Grado cinematografico: paleta de cine + volumen a {scale}x "
+        f"Grado cinematografico: paleta de cine, albedo {'plano' if not args.shaded else 'horneado'} "
+        f"y alturas {'on' if args.heights else 'off'} a {scale}x "
         f"(bisel {args.bevel}, luz {args.light[0]:.0f},{args.light[1]:.0f}, "
         f"grano {args.noise}, supermuestreo {args.supersample})"
     )
@@ -98,10 +120,14 @@ def main():
     total = 0.0
     for name in sources:
         target = os.path.join(object_dir, name)
-        if os.path.exists(target) and args.skip_existing:
+        height_target = os.path.join(height_object_dir, name) if args.heights else None
+        # Con alturas activas un color sin su mapa no sirve: hay que regenerar
+        # los dos para que la luz no trate la pieza como una superficie plana.
+        complete = os.path.exists(target) and (height_target is None or os.path.exists(height_target))
+        if complete and args.skip_existing:
             skipped += 1
             continue
-        total += render_file(os.path.join(source_dir, name), target, args, scale, grade)
+        total += render_file(os.path.join(source_dir, name), target, args, scale, grade, height_target)
         done += 1
     if skipped:
         print(f"   {skipped} objetos ya existian")
@@ -119,9 +145,11 @@ def main():
     written = 0
     for name in tile_names:
         target = os.path.join(fallback_dir, name)
-        if os.path.exists(target) and args.skip_existing:
+        height_target = os.path.join(height_fallback_dir, name) if args.heights else None
+        complete = os.path.exists(target) and (height_target is None or os.path.exists(height_target))
+        if complete and args.skip_existing:
             continue
-        render_file(os.path.join(tile_dir, name), target, args, scale, grade)
+        render_file(os.path.join(tile_dir, name), target, args, scale, grade, height_target)
         written += 1
     print(f"   {written} tiles en {time.monotonic() - started:.1f}s")
 

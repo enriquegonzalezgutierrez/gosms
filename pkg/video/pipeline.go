@@ -40,12 +40,34 @@ type Options struct {
 	// remastered layer. It is used only to choose the scaling filter.
 	HD bool
 
-	Bloom      float32
-	Sharpness  float32
-	Saturation float32
-	Contrast   float32
-	Gamma      float32
-	Brightness float32
+	Bloom          float32
+	BloomThreshold float32
+	Exposure       float32
+	ToneMap        float32
+	Dither         float32
+	Sharpness      float32
+	Saturation     float32
+	Contrast       float32
+	Gamma          float32
+	Brightness     float32
+
+	// Height es el mapa de altura compuesto (misma escena que el color). Si
+	// viene, la iluminacion usa volumen real en vez del gradiente de color.
+	Height *ebiten.Image
+
+	// Iluminacion de relieve (solo tiene sentido con arte HD).
+	Relief          float32
+	ReliefStep      float32
+	ReliefLightX    float32
+	ReliefLightY    float32
+	ReliefAmbient   float32
+	ReliefDiffuse   float32
+	ReliefSpecular  float32
+	ReliefGloss     float32
+	ReliefRim       float32
+	HeightLit       float32
+	HeightSlope     float32
+	HeightOcclusion float32
 
 	Scanline  float32
 	Mask      float32
@@ -63,16 +85,40 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		Contrast:   1.0,
 		Gamma:      1.0,
 		Brightness: 1.0,
+		Exposure:   1.0,
+		Dither:     1.0,
 		Lines:      192,
 	}
 	switch preset {
 	case PresetModern:
-		opts.Bloom = 0.36
+		opts.Bloom = 0.30
+		opts.BloomThreshold = 0.68
+		opts.Exposure = 1.00
+		opts.ToneMap = 1
 		opts.Sharpness = 0.38
-		opts.Saturation = 1.10
-		opts.Contrast = 1.03
+		opts.Saturation = 1.02
+		opts.Contrast = 1.02
+		opts.Relief = 1.5
+		opts.ReliefStep = 2.0
+		opts.ReliefLightX = -0.38
+		opts.ReliefLightY = -0.72
+		opts.ReliefAmbient = 0.72
+		opts.ReliefDiffuse = 0.66
+		opts.ReliefSpecular = 0.07
+		opts.ReliefGloss = 18.0
+		opts.ReliefRim = 0.04
+		opts.HeightLit = 1
+		opts.HeightSlope = 4.2
+		opts.HeightOcclusion = 1.0
+		// Con mapa de altura la referencia es la superficie plana: ambiental
+		// 1.0 mantiene el cielo y las zonas lisas con su color original.
+		opts.ReliefAmbient = 1.0
+		opts.ReliefDiffuse = 0.90
 	case PresetCRT:
 		opts.Bloom = 0.18
+		opts.BloomThreshold = 0.55
+		opts.Exposure = 1.02
+		opts.ToneMap = 1
 		opts.Sharpness = 0.20
 		opts.Saturation = 1.08
 		opts.Contrast = 1.04
@@ -80,6 +126,16 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		opts.Mask = 0.08
 		opts.Vignette = 0.22
 		opts.Curvature = 0.015
+		opts.ReliefLightX = -0.38
+		opts.ReliefLightY = -0.72
+		opts.ReliefAmbient = 1.0
+		opts.ReliefDiffuse = 0.70
+		opts.ReliefSpecular = 0.05
+		opts.ReliefGloss = 14.0
+		opts.ReliefRim = 0.03
+		opts.HeightLit = 1
+		opts.HeightSlope = 4.5
+		opts.HeightOcclusion = 1.0
 	}
 	return opts
 }
@@ -88,11 +144,14 @@ func DefaultOptions(preset Preset, hd bool) Options {
 // use; the game loop is single-threaded.
 type Pipeline struct {
 	sharpen   *ebiten.Shader
+	relief    *ebiten.Shader
+	heightLit *ebiten.Shader
 	blur      *ebiten.Shader
 	composite *ebiten.Shader
 	crt       *ebiten.Shader
 
 	base      *ebiten.Image
+	light     *ebiten.Image
 	work      *ebiten.Image
 	work2     *ebiten.Image
 	bloomA    *ebiten.Image
@@ -125,7 +184,7 @@ func loadShader(name string) (*ebiten.Shader, error) {
 // not need any shader at all, so they keep working even on a backend that
 // rejects one of the effects.
 func (p *Pipeline) compileBase() error {
-	if p.sharpen != nil && p.blur != nil && p.composite != nil {
+	if p.sharpen != nil && p.blur != nil && p.composite != nil && p.relief != nil && p.heightLit != nil {
 		return nil
 	}
 	var err error
@@ -136,6 +195,12 @@ func (p *Pipeline) compileBase() error {
 		return err
 	}
 	if p.composite, err = loadShader("composite.kage"); err != nil {
+		return err
+	}
+	if p.relief, err = loadShader("relief.kage"); err != nil {
+		return err
+	}
+	if p.heightLit, err = loadShader("heightlight.kage"); err != nil {
 		return err
 	}
 	return nil
@@ -173,6 +238,7 @@ func (p *Pipeline) ensure(w, h int) {
 	p.releaseTargets()
 	p.width, p.height = w, h
 	p.base = ebiten.NewImage(w, h)
+	p.light = ebiten.NewImage(w, h)
 	p.work = ebiten.NewImage(w, h)
 	p.work2 = ebiten.NewImage(w, h)
 	p.bloomA = ebiten.NewImage(maxInt(1, w/2), maxInt(1, h/2))
@@ -239,13 +305,62 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 		}
 	}
 
+	// Relief lighting. Only meaningful on remastered art: at native resolution
+	// the gradient would be a single game pixel wide and would just emboss noise.
+	source := p.base
+	if opts.Height != nil && opts.HeightLit > 0.001 {
+		// El mapa de altura vive a la resolucion del pack, que no tiene por que
+		// coincidir con la ventana. Se escala una sola vez a la resolucion de
+		// destino para que el gradiente se mida en pixeles reales de pantalla.
+		heightSrc := opts.Height
+		if heightSrc.Bounds().Dx() != w || heightSrc.Bounds().Dy() != h {
+			p.work.Fill(color.RGBA{A: 255})
+			scaleOp := &ebiten.DrawImageOptions{}
+			scaleOp.Filter = ebiten.FilterLinear
+			scaleOp.GeoM.Scale(float64(w)/float64(heightSrc.Bounds().Dx()), float64(h)/float64(heightSrc.Bounds().Dy()))
+			p.work.DrawImage(heightSrc, scaleOp)
+			heightSrc = p.work
+		}
+		p.light.Fill(color.RGBA{A: 255})
+		hop := &ebiten.DrawRectShaderOptions{}
+		hop.Images[0] = p.base
+		hop.Images[1] = heightSrc
+		hop.Uniforms = map[string]any{
+			"Light":     []float32{opts.ReliefLightX, opts.ReliefLightY},
+			"Ambient":   reliefValue(opts.ReliefAmbient, 1),
+			"Diffuse":   opts.ReliefDiffuse,
+			"Specular":  opts.ReliefSpecular,
+			"Gloss":     reliefValue(opts.ReliefGloss, 1),
+			"Rim":       opts.ReliefRim,
+			"Slope":     opts.HeightSlope,
+			"Occlusion": opts.HeightOcclusion,
+		}
+		p.light.DrawRectShader(w, h, p.heightLit, hop)
+		source = p.light
+	} else if opts.Relief > 0.001 && opts.HD {
+		p.light.Fill(color.RGBA{A: 255})
+		lop := &ebiten.DrawRectShaderOptions{}
+		lop.Images[0] = p.base
+		lop.Uniforms = map[string]any{
+			"Step":     []float32{reliefStep(opts.ReliefStep), reliefStep(opts.ReliefStep)},
+			"Light":    []float32{opts.ReliefLightX, opts.ReliefLightY},
+			"Ambient":  reliefValue(opts.ReliefAmbient, 1),
+			"Diffuse":  opts.ReliefDiffuse,
+			"Specular": opts.ReliefSpecular,
+			"Gloss":    reliefValue(opts.ReliefGloss, 1),
+			"Rim":      opts.ReliefRim,
+			"Relief":   opts.Relief,
+		}
+		p.light.DrawRectShader(w, h, p.relief, lop)
+		source = p.light
+	}
+
 	// Sharpen pass. Even a small amount helps after scaling, but the user can
 	// disable it by setting Sharpness to zero.
-	source := p.base
 	if opts.Sharpness > 0.001 {
 		p.work.Fill(color.RGBA{A: 255})
 		sop := &ebiten.DrawRectShaderOptions{}
-		sop.Images[0] = p.base
+		sop.Images[0] = source
 		sop.Uniforms = map[string]any{"Sharpness": opts.Sharpness}
 		p.work.DrawRectShader(w, h, p.sharpen, sop)
 		source = p.work
@@ -289,11 +404,15 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 		p.bloomUp.Fill(color.RGBA{A: 255})
 	}
 	cop.Uniforms = map[string]any{
-		"Bloom":      bloomValue(opts.Bloom, hasBloom),
-		"Saturation": opts.Saturation,
-		"Contrast":   opts.Contrast,
-		"Gamma":      maxFloat(opts.Gamma, 0.01),
-		"Brightness": brightness(opts.Brightness),
+		"Bloom":          bloomValue(opts.Bloom, hasBloom),
+		"BloomThreshold": opts.BloomThreshold,
+		"Saturation":     opts.Saturation,
+		"Contrast":       opts.Contrast,
+		"Gamma":          maxFloat(opts.Gamma, 0.01),
+		"Brightness":     brightness(opts.Brightness),
+		"Exposure":       exposureValue(opts.Exposure),
+		"ToneMap":        opts.ToneMap,
+		"Dither":         opts.Dither,
 	}
 	p.work2.DrawRectShader(w, h, p.composite, cop)
 
@@ -326,6 +445,27 @@ func bloomValue(v float32, enabled bool) float32 {
 	return v
 }
 
+func reliefStep(v float32) float32 {
+	if v < 0.1 {
+		return 1
+	}
+	return v
+}
+
+func reliefValue(v, fallback float32) float32 {
+	if v <= 0 {
+		return fallback
+	}
+	return v
+}
+
+func exposureValue(v float32) float32 {
+	if v <= 0 {
+		return 1
+	}
+	return v
+}
+
 func brightness(v float32) float32 {
 	if v <= 0 {
 		return 1
@@ -341,12 +481,12 @@ func maxFloat(a, b float32) float32 {
 }
 
 func (p *Pipeline) releaseTargets() {
-	for _, img := range []*ebiten.Image{p.base, p.work, p.work2, p.bloomA, p.bloomB, p.bloomBlur, p.bloomUp} {
+	for _, img := range []*ebiten.Image{p.base, p.light, p.work, p.work2, p.bloomA, p.bloomB, p.bloomBlur, p.bloomUp} {
 		if img != nil {
 			img.Deallocate()
 		}
 	}
-	p.base, p.work, p.work2, p.bloomA, p.bloomB, p.bloomBlur, p.bloomUp = nil, nil, nil, nil, nil, nil, nil
+	p.base, p.light, p.work, p.work2, p.bloomA, p.bloomB, p.bloomBlur, p.bloomUp = nil, nil, nil, nil, nil, nil, nil, nil
 }
 
 // Dispose releases the intermediate images. Ebiten images are garbage-collected

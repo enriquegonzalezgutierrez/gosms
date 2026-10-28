@@ -2,28 +2,64 @@
 package main
 
 var Bloom float
+var BloomThreshold float
 var Saturation float
 var Contrast float
 var Gamma float
 var Brightness float
+var Exposure float
+var ToneMap float
+var Dither float
+
+// aces es la curva filmica de Narkowicz: comprime las luces altas sin
+// recortarlas en plano y mantiene los negros profundos.
+func aces(x vec3) vec3 {
+	a := 2.51
+	b := 0.03
+	c := 2.43
+	d := 0.59
+	e := 0.14
+	return clamp((x*(a*x+b))/(x*(c*x+d)+e), vec3(0.0), vec3(1.0))
+}
+
+// hash devuelve ruido barato y estable por pixel; se usa para el tramado que
+// evita las bandas de color en degradados de 8 bits.
+func hash(p vec2) float {
+	return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453)
+}
 
 func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	base := imageSrc0At(src0Pos)
 	bloom := imageSrc1AtFromSrc0Pos(src0Pos)
 
-	// Both images are the same size for DrawRectShader, so the bloom buffer is
-	// already stretched to the target resolution by the caller.
-	rgb := base.rgb + bloom.rgb*Bloom
+	// El bloom solo toma las zonas que superan el umbral, asi las sombras no
+	// se lavan y el brillo se concentra en luces y especulares.
+	luma := dot(base.rgb, vec3(0.299, 0.587, 0.114))
+	mask := 1.0
+	if BloomThreshold > 0.001 {
+		mask = smoothstep(BloomThreshold, BloomThreshold+0.25, luma)
+	}
+	rgb := base.rgb + bloom.rgb*Bloom*mask
 
-	luma := dot(rgb, vec3(0.299, 0.587, 0.114))
+	rgb = rgb * Exposure
+	if ToneMap > 0.5 {
+		rgb = aces(rgb)
+	}
+
+	luma = dot(rgb, vec3(0.299, 0.587, 0.114))
 	rgb = mix(vec3(luma), rgb, Saturation)
 	rgb = (rgb-vec3(0.5))*Contrast + vec3(0.5)
 	rgb = rgb*Brightness
 
-	// Gamma correction. A gamma lower than 1.0 lifts shadows; higher values
-	// deepen them. Keep the result valid for premultiplied alpha.
+	// Correccion de gamma. Un gamma menor que 1.0 levanta las sombras; mayor
+	// las ahonda. Se mantiene el alfa premultiplicado valido.
 	rgb = pow(max(rgb, vec3(0.0)), vec3(1.0/max(Gamma, 0.01)))
-	rgb = clamp(rgb, vec3(0.0), vec3(base.a))
 
+	if Dither > 0.001 {
+		n := hash(dstPos.xy) - 0.5
+		rgb = rgb + vec3(n*Dither/255.0)
+	}
+
+	rgb = clamp(rgb, vec3(0.0), vec3(base.a))
 	return vec4(rgb, base.a)
 }

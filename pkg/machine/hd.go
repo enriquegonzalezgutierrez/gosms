@@ -83,19 +83,43 @@ type HDAtlasTile struct {
 // HDPackDocument is the v2 HD pack format. It is intentionally separate from
 // TileManifestDocument so the runtime only parses what it needs.
 type HDPackDocument struct {
-	Version  int                  `json:"version"`
-	ROM      string               `json:"rom"`
-	Scale    int                  `json:"scale"`
-	TileSize int                  `json:"tile_size"`
-	Pages    []HDAtlasPage        `json:"pages"`
-	Tiles    []HDAtlasTile        `json:"tiles"`
-	Objects  []TileObjectManifest `json:"objects,omitempty"`
-	Scenes   []TileSceneManifest  `json:"scenes,omitempty"`
+	Version     int                  `json:"version"`
+	ROM         string               `json:"rom"`
+	Scale       int                  `json:"scale"`
+	TileSize    int                  `json:"tile_size"`
+	Pages       []HDAtlasPage        `json:"pages"`
+	HeightPages []HDAtlasPage        `json:"height_pages,omitempty"`
+	Tiles       []HDAtlasTile        `json:"tiles"`
+	Objects     []TileObjectManifest `json:"objects,omitempty"`
+	Scenes      []TileSceneManifest  `json:"scenes,omitempty"`
+}
+
+// HDPalette es el mapa de color de los 64 registros CRAM ya graduados. El
+// fondo del VDP se pinta con un registro, no con un tile, asi que necesita su
+// propia traduccion para que el cielo siga la paleta del pack.
+type HDPalette struct {
+	Grade  string            `json:"grade"`
+	Colors map[string][3]int `json:"colors"`
 }
 
 type HDRenderer struct {
 	Active bool
 	Sheet  *ebiten.Image
+
+	// Palette traduce el color del fondo CRT a la paleta del pack. Puede ser
+	// nil: entonces el fondo se queda con el color de la consola.
+	Palette map[color.RGBA]color.RGBA
+
+	// HeightSheet es el atlas de altura en packs v1 (mismo layout que Sheet).
+	HeightSheet *ebiten.Image
+	HeightMap   map[string]*ebiten.Image
+
+	// En packs v2 las alturas viven en sus propias paginas y se cargan bajo
+	// demanda igual que el color.
+	HeightPagePaths  []string
+	HeightPages      []*ebiten.Image
+	HeightPageLoaded []bool
+	HasHeight        bool
 
 	// Pages are loaded lazily from PagePaths. This keeps an 8x pack from
 	// reserving hundreds of MiB before the first scene is drawn.
@@ -130,7 +154,7 @@ func decodeColorVDP(c byte) color.RGBA {
 	return color.RGBA{R: r, G: g, B: b, A: 255}
 }
 
-func generateFallbackTile(tileData []byte, cram []byte, isSprite bool, scale int) *ebiten.Image {
+func (hd *HDRenderer) generateFallbackTile(tileData []byte, cram []byte, isSprite bool, scale int) *ebiten.Image {
 	if scale < 1 {
 		scale = 1
 	}
@@ -157,7 +181,7 @@ func generateFallbackTile(tileData []byte, cram []byte, isSprite bool, scale int
 			if isSprite && cIdx == 0 {
 				col = color.RGBA{0, 0, 0, 0}
 			} else {
-				col = pal[cIdx&0x0F]
+				col = hd.GradeColor(pal[cIdx&0x0F])
 				col.A = 255
 			}
 			for dy := 0; dy < scale; dy++ {
@@ -168,6 +192,41 @@ func generateFallbackTile(tileData []byte, cram []byte, isSprite bool, scale int
 		}
 	}
 	return ebiten.NewImageFromImage(img)
+}
+
+func loadHDPalette(hdDir string) map[color.RGBA]color.RGBA {
+	data, err := os.ReadFile(filepath.Join(hdDir, "palette.json"))
+	if err != nil {
+		return nil
+	}
+	var doc HDPalette
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	palette := make(map[color.RGBA]color.RGBA, len(doc.Colors))
+	for key, rgb := range doc.Colors {
+		var r, g, b int
+		if _, err := fmt.Sscanf(key, "%d,%d,%d", &r, &g, &b); err != nil {
+			continue
+		}
+		palette[color.RGBA{uint8(r), uint8(g), uint8(b), 255}] = color.RGBA{uint8(rgb[0]), uint8(rgb[1]), uint8(rgb[2]), 255}
+	}
+	if len(palette) == 0 {
+		return nil
+	}
+	return palette
+}
+
+// GradeColor traduce un color de la consola al del pack. Sin paleta devuelve
+// el mismo color, de modo que los packs antiguos siguen funcionando.
+func (hd *HDRenderer) GradeColor(c color.RGBA) color.RGBA {
+	if hd == nil || hd.Palette == nil {
+		return c
+	}
+	if mapped, ok := hd.Palette[c]; ok {
+		return mapped
+	}
+	return c
 }
 
 func InitHD(romPath string) {
@@ -207,6 +266,11 @@ func loadHDPackV2(hdDir string, data []byte) bool {
 		pageSizes[i] = image.Pt(page.Width, page.Height)
 	}
 
+	heightPaths := make([]string, len(doc.HeightPages))
+	for i, page := range doc.HeightPages {
+		heightPaths[i] = filepath.Join(hdDir, page.File)
+	}
+
 	scale := doc.Scale
 	if scale < 1 && len(doc.Tiles) > 0 {
 		scale = doc.Tiles[0].W / 8
@@ -223,7 +287,15 @@ func loadHDPackV2(hdDir string, data []byte) bool {
 		PageLoaded: make([]bool, len(doc.Pages)),
 		TileRefs:   make(map[string]HDAtlasTile),
 		TileMap:    make(map[string]*ebiten.Image),
+		HeightMap:  make(map[string]*ebiten.Image),
+		Palette:    loadHDPalette(hdDir),
 		Scale:      scale,
+	}
+	if len(heightPaths) == len(doc.Pages) {
+		hd.HeightPagePaths = heightPaths
+		hd.HeightPages = make([]*ebiten.Image, len(heightPaths))
+		hd.HeightPageLoaded = make([]bool, len(heightPaths))
+		hd.HasHeight = true
 	}
 	mapped := 0
 	for _, tile := range doc.Tiles {
@@ -320,9 +392,20 @@ func loadHDLegacy(hdDir string) {
 	img := ebiten.NewImageFromImage(decodedImg)
 
 	hd := &HDRenderer{
-		Active:  true,
-		Sheet:   img,
-		TileMap: make(map[string]*ebiten.Image),
+		Active:    true,
+		Sheet:     img,
+		TileMap:   make(map[string]*ebiten.Image),
+		HeightMap: make(map[string]*ebiten.Image),
+		Palette:   loadHDPalette(hdDir),
+	}
+	heightPath := filepath.Join(hdDir, "heights.png")
+	if hf, err := os.Open(heightPath); err == nil {
+		if decodedHeight, _, err := image.Decode(hf); err == nil &&
+			decodedHeight.Bounds().Dx() == img.Bounds().Dx() && decodedHeight.Bounds().Dy() == img.Bounds().Dy() {
+			hd.HeightSheet = ebiten.NewImageFromImage(decodedHeight)
+			hd.HasHeight = true
+		}
+		_ = hf.Close()
 	}
 	cols := 32
 	scale := img.Bounds().Dx() / (cols * 12)
@@ -344,10 +427,61 @@ func loadHDLegacy(hdDir string) {
 		}
 		rect := image.Rect(gx, gy, gx+tileSize, gy+tileSize)
 		hd.TileMap[m.Hash] = img.SubImage(rect).(*ebiten.Image)
+		if hd.HeightSheet != nil {
+			hd.HeightMap[m.Hash] = hd.HeightSheet.SubImage(rect).(*ebiten.Image)
+		}
 	}
 
 	HD = hd
 	fmt.Printf("\033[1;32m🌟 GOSMS HD ENGINE:\033[0m Pack v1 cargado -> %d texturas (Escala %dx)\n", len(hd.TileMap), hd.Scale)
+}
+
+// LoadHeightPage decodifica una pagina de altura bajo demanda.
+func (hd *HDRenderer) LoadHeightPage(index int) bool {
+	if hd == nil || !hd.HasHeight || index < 0 || index >= len(hd.HeightPagePaths) {
+		return false
+	}
+	if hd.HeightPageLoaded[index] && hd.HeightPages[index] != nil {
+		return true
+	}
+	f, err := os.Open(hd.HeightPagePaths[index])
+	if err != nil {
+		return false
+	}
+	decoded, _, err := image.Decode(f)
+	_ = f.Close()
+	if err != nil || hd.HeightPages == nil {
+		return false
+	}
+	hd.HeightPages[index] = ebiten.NewImageFromImage(decoded)
+	hd.HeightPageLoaded[index] = true
+	return true
+}
+
+// GetHDHeight devuelve el mapa de altura del tile, o nil si el pack no lo trae.
+func (hd *HDRenderer) GetHDHeight(tileData []byte, cram []byte, isSprite bool) *ebiten.Image {
+	if hd == nil || !hd.Active || !hd.HasHeight {
+		return nil
+	}
+	key := TileHash(tileData, cram, isSprite)
+	if img, ok := hd.HeightMap[key]; ok {
+		return img
+	}
+	ref, ok := hd.TileRefs[key]
+	if !ok || !hd.LoadHeightPage(ref.Page) {
+		return nil
+	}
+	page := hd.HeightPages[ref.Page]
+	if page == nil {
+		return nil
+	}
+	rect := image.Rect(ref.X, ref.Y, ref.X+ref.W, ref.Y+ref.H)
+	if rect.Min.X < 0 || rect.Min.Y < 0 || rect.Max.X > page.Bounds().Dx() || rect.Max.Y > page.Bounds().Dy() {
+		return nil
+	}
+	img := page.SubImage(rect).(*ebiten.Image)
+	hd.HeightMap[key] = img
+	return img
 }
 
 func (hd *HDRenderer) GetHDTile(tileData []byte, cram []byte, isSprite bool) *ebiten.Image {
@@ -370,7 +504,7 @@ func (hd *HDRenderer) GetHDTile(tileData []byte, cram []byte, isSprite bool) *eb
 	}
 
 	// Fallback dinámico: genera y cachea el tile nativo a escala HD si no está remasterizado
-	img := generateFallbackTile(tileData, cram, isSprite, hd.Scale)
+	img := hd.generateFallbackTile(tileData, cram, isSprite, hd.Scale)
 	hd.TileMap[hStr] = img
 	return img
 }
