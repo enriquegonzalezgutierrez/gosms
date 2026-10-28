@@ -13,8 +13,8 @@ Hace:
 - suaviza las esquinas con antialiasing real;
 - puede convertir cada color plano en una superficie con volumen, bisel y brillo
   (luz de altura opcional, **F6**);
-- guarda la altura de cada pieza para que la luz se calcule en pantalla, con
-  especular, contraluz y sombra de los sprites;
+- guarda la altura de cada pieza para que la luz se calcule en pantalla cuando
+  la activas (F6), con especular, contraluz y sombra de los sprites;
 - sustituye el azul plano del cielo por un degradado con halo de sol;
 - rompe la uniformidad de las zonas grandes con un grano suave;
 - conserva el dibujo, la pose y la posición exactos; la paleta de la consola
@@ -26,7 +26,8 @@ No hace:
 - no rediseña personajes ni cambia colores;
 - no convierte el juego en una foto.
 
-Es un remaster vectorial: el dibujo original, limpio y con relieve.
+Es un remaster vectorial: el dibujo original limpio; el volumen es opcional
+con **F6** (o se puede hornear en el pack con `CINE_SHADED=1`).
 
 ## Requisitos
 
@@ -198,11 +199,11 @@ saturación, sombras frías y luces cálidas).
 | `CINE_LIMIT` | `0` | Máximo de composites; `0` procesa todos. |
 | `CINE_SKIP` | `0` | `1` conserva los PNG que ya existen. |
 | `CINE_TILES` | `1` | `0` no regenera el fallback por tile. |
-| `CINE_BEVEL` | `1.8` | Radio del bisel en píxeles de juego. |
+| `CINE_BEVEL` | `1.8` | Radio del bisel en píxeles de juego (altura/F6 y horneado). |
 | `CINE_LIGHT` | `315,48` | Azimut y elevación de la luz. |
 | `CINE_NOISE` | `0.03` | Amplitud del grano. |
 | `CINE_SHADED` | `0` | `1` hornea la luz en el PNG en vez de dejar albedo plano. |
-| `CINE_HEIGHTS` | `1` | `0` no genera mapa de altura; el emulador vuelve al relieve por gradiente. |
+| `CINE_HEIGHTS` | `1` | `0` no genera mapa de altura; con F6 el shader usa el relieve por gradiente. |
 
 La paleta está en `tools/grades.py`; cambiar un color allí y volver a lanzar el
 comando es todo lo necesario para probar otra dirección.
@@ -270,7 +271,7 @@ go run ./cmd/preview -frames 900 -pause 600 -filter modern -hd \
   objetos distintos ni sombras proyectadas del escenario, solo la sombra suave
   de los sprites cuando está activa. El modo por defecto (albedo plano + cielo)
   es el más limpio y el más rápido.
-- Un pack antiguo sin `heights.png`/`palette.json` sigue funcionando, pero usa
-  el relieve por gradiente y el fondo sin graduar.
+- Un pack antiguo sin `heights.png`/`palette.json` sigue funcionando; con F6
+  usa el relieve por gradiente y el fondo queda sin graduar.
 - El texto y el HUD no se vectorizan aparte: si aparecen en un composite, se suavizan como cualquier otra región.
 - Los packs 8× ocupan bastante más en disco y en memoria de vídeo.

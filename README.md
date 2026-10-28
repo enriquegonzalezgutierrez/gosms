@@ -95,7 +95,7 @@ make audit
 
 ### Remasterizar una ROM
 
-El remaster es **matemático, sin IA**: vectoriza cada objeto con campos de distancia, aplica antialiasing real y guarda un mapa de altura. El emulador usa ese mapa para iluminar la escena en tiempo real: luz direccional, especular, contraluz y sombra de los sprites. No descarga modelos y es determinista.
+El remaster es **matemático, sin IA**: vectoriza cada objeto con campos de distancia, aplica antialiasing real y guarda un mapa de altura para la iluminación **opcional**. Por defecto el emulador muestra el **albedo plano con el cielo moderno**; con **F6** activas la iluminación por altura (luz direccional, especular, contraluz y sombra de los sprites). No descarga modelos y es determinista.
 
 Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaqueta):
 
@@ -121,11 +121,11 @@ make pack ROM="..."
 make run ROM="..."
 ```
 
-`CINE_BEVEL` es el radio del bisel en píxeles de juego (1.8 por defecto): súbelo para un volumen más redondo y bájalo para un acabado más plano.
+`CINE_BEVEL` es el radio del bisel en píxeles de juego (1.8 por defecto). Afecta al mapa de altura (F6) y al horneado con `CINE_SHADED=1`; el albedo plano por defecto no cambia. Súbelo para un volumen más redondo y bájalo para un acabado más plano.
 
 El acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí) ya es el que aplica `make remaster`. La paleta está en `tools/grades.py`: cambia un color allí, vuelve a lanzar `make cinematic` y `make pack`, y el emulador graduará también el fondo y los tiles sin remasterizar con `hd/palette.json`.
 
-El albedo plano es el modo por defecto; para hornear la luz en el PNG usa `CINE_SHADED=1`. Para empaquetar sin mapa de altura (vuelve al relieve por gradiente del shader) usa `CINE_HEIGHTS=0`.
+El albedo plano es el modo por defecto; para hornear la luz en el PNG usa `CINE_SHADED=1`. Para empaquetar sin mapa de altura usa `CINE_HEIGHTS=0` (si activas F6, el shader usa el relieve por gradiente).
 
 El pack lleva color y altura en paralelo. Por defecto el HD se ve como **albedo plano + cielo moderno**; la luz de altura es opcional y se activa con **F6**. El filtro **REMASTER 2026** añade bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. Para probar otra dirección de luz, `cmd/preview` acepta `-light "x,y"`, `-noheight` y `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva luz, cielo y bloom.
 
