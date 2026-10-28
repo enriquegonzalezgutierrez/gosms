@@ -109,7 +109,7 @@ def make_scene_tile_maps(scenes, tile_images, out_dir):
     os.makedirs(scene_dir, exist_ok=True)
     font = ImageFont.load_default()
     scale = 3
-    for scene in scenes:
+    for scene_index, scene in enumerate(scenes):
         if scene.get("metatile_map"):
             source = os.path.join(os.path.dirname(out_dir), "original", scene.get("image", ""))
             if os.path.isfile(source):
@@ -133,7 +133,12 @@ def make_scene_tile_maps(scenes, tile_images, out_dir):
                 draw.rectangle((x0, y0, x0 + 8 * scale - 1, y0 + 8 * scale - 1), outline=(0, 0, 0, 130))
                 if index >= 0:
                     draw.text((x0 + 2, y0 + 2), str(index), font=font, fill=(255, 255, 0, 255), stroke_width=1, stroke_fill=(0, 0, 0, 255))
-        image.save(os.path.join(scene_dir, f"frame_{scene['frame']:05d}_tiles.png"))
+        frame = scene.get("frame")
+        if not isinstance(frame, int):
+            stem = os.path.splitext(os.path.basename(scene.get("image", "")))[0]
+            digits = "".join(ch for ch in stem if ch.isdigit())
+            frame = int(digits) if digits else scene_index
+        image.save(os.path.join(scene_dir, f"frame_{frame:05d}_tiles.png"))
 
 
 def load_original_tile(item, tile_dir, spritesheet):
