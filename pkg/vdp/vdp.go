@@ -276,6 +276,10 @@ func (v *VDP) RenderLine(line int) {
 	scrollY := int(v.vScroll)
 	nameBase := int(v.Reg[2]&0x0E) << 10
 	blankLeft := v.Reg[0]&0x20 != 0
+	// R0 D6: las dos primeras filas (16 px) no se desplazan en horizontal.
+	if v.Reg[0]&0x40 != 0 && line < 16 {
+		scrollX = 0
+	}
 
 	var bgPri [ScreenW]bool
 	var palRGB [32]uint32
