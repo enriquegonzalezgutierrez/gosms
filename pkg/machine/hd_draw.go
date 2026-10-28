@@ -264,6 +264,9 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 	drawBgItem := func(item bgDrawItem) {
 		op := &ebiten.DrawImageOptions{}
 		op.Filter = ebiten.FilterLinear
+		if hdScale == 1 {
+			op.Filter = ebiten.FilterNearest
+		}
 		op.GeoM.Scale(item.sX, item.sY)
 		op.GeoM.Translate(item.tX, item.tY)
 		op.GeoM.Translate(item.drawX, item.drawY)
@@ -352,6 +355,9 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 			if img != nil {
 				op := &ebiten.DrawImageOptions{}
 				op.Filter = ebiten.FilterLinear
+				if hdScale == 1 {
+					op.Filter = ebiten.FilterNearest
+				}
 				op.GeoM.Scale(hdScale, hdScale)
 				op.GeoM.Translate(drawX, drawY)
 				var himg *ebiten.Image

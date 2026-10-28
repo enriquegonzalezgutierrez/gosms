@@ -293,7 +293,6 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 	w, h := dstRect.Dx(), dstRect.Dy()
 	p.ensure(w, h)
 
-	p.base.Fill(color.RGBA{A: 255})
 	filter := ebiten.FilterLinear
 	if opts.Preset == PresetPixelPerfect && !opts.HD {
 		filter = ebiten.FilterNearest
@@ -414,7 +413,6 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 		blur.Uniforms = map[string]any{"Radius": float32(2.5)}
 		p.bloomBlur.DrawRectShader(p.bloomB.Bounds().Dx(), p.bloomB.Bounds().Dy(), p.blur, blur)
 
-		p.bloomUp.Fill(color.RGBA{A: 255})
 		up := &ebiten.DrawImageOptions{}
 		up.Filter = ebiten.FilterLinear
 		up.GeoM.Scale(float64(w)/float64(p.bloomBlur.Bounds().Dx()), float64(h)/float64(p.bloomBlur.Bounds().Dy()))
@@ -422,7 +420,6 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 	}
 
 	// Composite and grade.
-	p.work2.Fill(color.RGBA{A: 255})
 	cop := &ebiten.DrawRectShaderOptions{}
 	cop.Images[0] = source
 	if hasBloom {
@@ -430,7 +427,6 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 	} else {
 		// A black image avoids a second shader variant when bloom is off.
 		cop.Images[1] = p.bloomUp
-		p.bloomUp.Fill(color.RGBA{A: 255})
 	}
 	cop.Uniforms = map[string]any{
 		"Bloom":          bloomValue(opts.Bloom, hasBloom),

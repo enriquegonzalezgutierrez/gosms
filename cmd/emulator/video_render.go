@@ -41,8 +41,6 @@ func (g *game) hdFrameSource() (*ebiten.Image, image.Rectangle) {
 	}
 	if g.hdTarget == nil || g.hdTarget.Bounds().Dx() != w || g.hdTarget.Bounds().Dy() != h {
 		g.hdTarget = ebiten.NewImage(w, h)
-	} else {
-		g.hdTarget.Clear()
 	}
 	// drawHDLayer uses the same coordinate system as the emulated 256x192
 	// screen, scaled by the pack factor. Passing 0,0 as the destination keeps

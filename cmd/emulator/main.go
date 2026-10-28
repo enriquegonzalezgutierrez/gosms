@@ -559,6 +559,9 @@ func (g *game) Update() error {
 	// F8: Pantallazo limpio para IA
 	if inpututil.IsKeyJustPressed(ebiten.KeyF7) {
 		if g.dumper != nil && g.img != nil {
+			if g.m != nil && g.m.VDP != nil {
+				g.img.WritePixels(g.m.VDP.Frame[:])
+			}
 			shot := g.dumper.SaveScreenshot(g.img)
 			if shot != "" {
 				g.showOSD("📸 PANTALLAZO IA: " + shot)
@@ -1027,8 +1030,10 @@ func (g *game) Draw(screen *ebiten.Image) {
 		return
 	}
 
-	// 1. Cargar píxeles del VDP
-	g.img.WritePixels(g.m.VDP.Frame[:])
+	// 1. Cargar píxeles del VDP (el HD compone desde VRAM, sin este upload)
+	if !(g.hdMode && machine.HD != nil && machine.HD.Active) {
+		g.img.WritePixels(g.m.VDP.Frame[:])
+	}
 
 	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
 	source, srcRect := g.frameSource()
