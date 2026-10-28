@@ -161,6 +161,8 @@ La APK arranca en un **lanzador con la estética del escritorio**. Como Android 
 
 El selector usa `ACTION_OPEN_DOCUMENT`, así que no hace falta permiso de almacenamiento.
 
+El APK renderiza la ROM a resolución nativa. El pack HD es **por ROM** y se genera en el escritorio (`make remaster`), así que no se incluye para ROMs arbitrarias; la interfaz, el lanzador y el HUD sí son los mismos.
+
 ---
 
 ## 🛠️ Herramientas de Desarrollo y Diagnóstico
