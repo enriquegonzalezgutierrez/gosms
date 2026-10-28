@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-GoSMS is a Sega Master System emulator written in Go (module `gosms`). Core emulation code lives in `pkg/`: `cpu`, `vdp`, `psg`, `machine`, and `video`. Executable entry points are under `cmd/`, including `emulator`, `headless`, `preview`, `tracer`, `audit`, and `dump_assets`. The Android/Ebiten integration is in `mobile/`. Asset extraction and tile utilities live in `tools/`; generated graphics go under `assets/`, and architecture or product images are in `docs/media/`. Keep tests beside the code they cover, named `*_test.go`.
+GoSMS is a Sega Master System emulator written in Go (module `gosms`). Core emulation code lives in `pkg/`: `cpu`, `vdp`, `psg`, `machine`, and `video`. Executable entry points are under `cmd/`, including `emulator`, `headless`, `preview`, `tracer`, `audit`, and `dump_assets`. The Android/Ebiten integration is in `mobile/` (SAF ROM picker, Go launcher and responsive touch HUD). Asset extraction and tile utilities live in `tools/`; generated graphics go under `assets/`, and architecture or product images are in `docs/media/`. Keep tests beside the code they cover, named `*_test.go`.
 
 ## Build, Test, and Development Commands
 

@@ -16,7 +16,7 @@
 
 **GoSMS** es un emulador de **Sega Master System (SMS)** de alto rendimiento, ciclo-exacto y multiplataforma, desarrollado en **Go puro** con aceleración gráfica mediante [Ebitengine](https://ebitengine.org/). 
 
-Diseñado desde cero con foco en la precisión de sincronismo NTSC (≈59.9227 FPS), emulación acústica de calidad de estudio sin deriva ni artefactos digitales, post-procesado visual en tiempo real (CRT Scanlines, Scale2x EPX, Remaster 2026 con sharpening, bloom y color grading) y generación automatizada de paquetes portables para **Linux**, **Windows** y **Android (APK nativo con controles táctiles HUD)**.
+Diseñado desde cero con foco en la precisión de sincronismo NTSC (≈59.9227 FPS), emulación acústica de calidad de estudio sin deriva ni artefactos digitales, post-procesado visual en tiempo real (CRT Scanlines, Scale2x EPX, Remaster 2026 con sharpening, bloom y color grading) y generación automatizada de paquetes portables para **Linux**, **Windows** y **Android (APK nativo con lanzador, selector de ROM y HUD táctil)**.
 
 <p align="center">
   <img src="docs/media/features-grid.svg" alt="GoSMS Features Grid" width="100%"/>
@@ -59,7 +59,8 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 | **Guardar Partida Rápida** | `F5` | — | — | — |
 | **Cargar Partida Rápida** | `F8` | — | — | — |
 | **Pantalla Completa** | `F11` | — | — | — |
-| **Volver al Menú / Salir** | `Esc` | — | — | — |
+| **Volver al Menú / Salir** | `Esc` | — | — | Botón `MENÚ` / atrás |
+| **Elegir / cambiar ROM** | — | — | — | `ELEGIR ROM` / `CAMBIAR ROM` |
 
 > En Alex Kidd, **PAUSE / START** (`P` o `Enter`, o `Start` en el mando) abre el mapa e inventario del juego. `Esc` vuelve al menú del emulador.
 
@@ -146,7 +147,19 @@ Este comando compila de forma paralela y genera en el directorio `dist/`:
 
 1. **🐧 Linux**: Paquete portable `dist/gosms-linux-release.zip` listo para descomprimir y jugar.
 2. **🪟 Windows**: Paquete portable `dist/gosms-windows-release.zip` con ejecutable GUI optimizado (sin consola CMD emergente).
-3. **📱 Android**: Archivo `dist/gosms-android/gosms.apk` compilado dentro de un contenedor Docker aislado mediante `ebitenmobile` y empaquetado nativamente con el SDK de Android (`aapt2`, `d8`, `zipalign` y `apksigner`). Incluye la ROM de GoSMS embebida y soporte táctil inmediato.
+3. **📱 Android**: Archivo `dist/gosms-android/gosms.apk` compilado dentro de un contenedor Docker aislado mediante `ebitenmobile` y empaquetado nativamente con el SDK de Android (`aapt2`, `d8`, `zipalign` y `apksigner`).
+
+### Android
+
+La APK arranca en un **lanzador con la estética del escritorio**. Como Android no permite leer una carpeta `roms/`, el botón **ELEGIR ROM** abre el selector de archivos del sistema y carga un `.sms`:
+
+- **JUGAR** inicia la ROM recordada.
+- **CAMBIAR ROM** vuelve a abrir el selector.
+- **MENÚ** (en el HUD) o el botón **atrás** vuelven al lanzador; desde el lanzador, atrás sale de la app.
+- La última ROM se recuerda entre arranques (permiso persistente del selector).
+- El HUD táctil es responsive: D-pad, botones 1/2, PAUSA y MENÚ, con la misma paleta azul/neón del escritorio.
+
+El selector usa `ACTION_OPEN_DOCUMENT`, así que no hace falta permiso de almacenamiento.
 
 ---
 

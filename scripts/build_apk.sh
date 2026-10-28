@@ -31,13 +31,14 @@ cat << 'MANIFEST' > "${WORK_DIR}/AndroidManifest.xml"
     android:versionCode="1"
     android:versionName="1.0">
 
-    <uses-sdk android:minSdkVersion="16" android:targetSdkVersion="33" />
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="33" />
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="GoSMS"
         android:hasCode="true"
+        android:hardwareAccelerated="true"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
         <activity
             android:name="com.egonzalez.gosms.MainActivity"
@@ -59,19 +60,178 @@ cat << 'JAVA' > "${WORK_DIR}/java/com/egonzalez/gosms/MainActivity.java"
 package com.egonzalez.gosms;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
+import android.view.View;
 import android.view.WindowManager;
-import com.egonzalez.gosms.mobile.EbitenView;
 
-public class MainActivity extends Activity {
+import com.egonzalez.gosms.mobile.EbitenView;
+import com.egonzalez.gosms.mobile.Mobile;
+import com.egonzalez.gosms.mobile.Picker;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+
+public class MainActivity extends Activity implements Picker {
+    private static final int PICK_ROM = 1001;
+    private static final String PREFS = "gosms";
     private EbitenView ebitenView;
+    private SharedPreferences prefs;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                View.SYSTEM_UI_FLAG_FULLSCREEN |
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+
+        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         ebitenView = new EbitenView(this);
         setContentView(ebitenView);
+        Mobile.setPicker(this);
+        restoreLastRom();
+    }
+
+    // Llamado desde Go cuando el lanzador pide una ROM.
+    @Override
+    public void pickROM() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(intent, PICK_ROM);
+            }
+        });
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != PICK_ROM || resultCode != RESULT_OK || data == null) {
+            return;
+        }
+        final Uri uri = data.getData();
+        if (uri == null) {
+            return;
+        }
+        try {
+            getContentResolver().takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ignored) {
+        }
+        final String name = displayName(uri);
+        prefs.edit().putString("rom_uri", uri.toString())
+                    .putString("rom_name", name).apply();
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                byte[] bytes = readAll(uri);
+                if (bytes != null && bytes.length > 1024) {
+                    Mobile.setROM(name, bytes);
+                    Mobile.play();
+                }
+            }
+        }).start();
+    }
+
+    private void restoreLastRom() {
+        final String uriString = prefs.getString("rom_uri", null);
+        final String name = prefs.getString("rom_name", "ROM");
+        if (uriString == null) {
+            return;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    byte[] bytes = readAll(Uri.parse(uriString));
+                    if (bytes != null && bytes.length > 1024) {
+                        Mobile.setROM(name, bytes);
+                    } else {
+                        clearLastRom();
+                    }
+                } catch (Exception e) {
+                    clearLastRom();
+                }
+            }
+        }).start();
+    }
+
+    private void clearLastRom() {
+        prefs.edit().remove("rom_uri").remove("rom_name").apply();
+    }
+
+    private byte[] readAll(Uri uri) {
+        InputStream in = null;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try {
+            in = getContentResolver().openInputStream(uri);
+            if (in == null) {
+                return null;
+            }
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                out.write(buffer, 0, read);
+                if (out.size() > 32 * 1024 * 1024) {
+                    return null;
+                }
+            }
+            return out.toByteArray();
+        } catch (Exception e) {
+            return null;
+        } finally {
+            try {
+                if (in != null) {
+                    in.close();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private String displayName(Uri uri) {
+        String name = null;
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri, null, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    name = cursor.getString(index);
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        if (name == null || name.length() == 0) {
+            name = uri.getLastPathSegment();
+        }
+        return name == null ? "ROM" : name;
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Desde el juego vuelve al lanzador; desde el lanzador sale.
+        if (Mobile.handleBack()) {
+            super.onBackPressed();
+        }
     }
 
     @Override
@@ -85,6 +245,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                View.SYSTEM_UI_FLAG_FULLSCREEN |
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         if (ebitenView != null) {
             ebitenView.resumeGame();
         }

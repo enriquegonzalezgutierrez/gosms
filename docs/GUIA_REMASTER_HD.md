@@ -99,8 +99,8 @@ sustituye por:
 
 - un **degradado vertical** de azul profundo arriba a azul pálido cerca del
   horizonte;
-- un **halo de sol** suave en la dirección de la luz, para que el cielo y el
-  relieve compartan la misma fuente;
+- un **halo de sol** suave en la dirección de la luz, coherente con el resto
+  de la escena;
 - **dithering** fino para que el degradado no muestre bandas.
 
 Solo cambia los píxeles que coinciden con el color del cielo: el terreno y los
