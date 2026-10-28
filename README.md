@@ -52,13 +52,16 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 | **Cruceta / Movimiento** | Flechas `↑` `↓` `←` `→` | `W` `A` `S` `D` | D-Pad / Stick Izquierdo | D-Pad Virtual (Izquierda) |
 | **Botón 1 (Disparo / Salto)** | `Z` o `Espacio` | `Q` | `A` (Xbox) / `✕` (PlayStation) | Botón verde `( 1 )` |
 | **Botón 2 (Salto / Disparo)** | `X` | `E` | `B` (Xbox) / `◯` (PlayStation) | Botón rojo `( 2 )` |
-| **Botón PAUSE (Consola)** | `P` | — | Botón `Start` | Botón `[ PAUSE ]` |
+| **Botón PAUSE / START (Consola)** | `P` o `Enter` | — | Botón `Start` | Botón `[ PAUSE ]` |
 | **Cambiar Filtro de Vídeo** | `F1` o `V` | — | — | — |
+| **Alternar HD / Original** | `F10` | — | — | — |
 | **Cambiar Filtro de Audio** | `F2` o `B` | — | — | — |
 | **Guardar Partida Rápida** | `F5` | — | — | — |
 | **Cargar Partida Rápida** | `F8` | — | — | — |
 | **Pantalla Completa** | `F11` | — | — | — |
 | **Volver al Menú / Salir** | `Esc` | — | — | — |
+
+> En Alex Kidd, **PAUSE / START** (`P` o `Enter`, o `Start` en el mando) abre el mapa e inventario del juego. `Esc` vuelve al menú del emulador.
 
 ---
 
@@ -101,28 +104,29 @@ make remaster ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 
 Necesita Python 3 con `numpy` y `Pillow`. `make setup` crea `.venv-remaster/` con ambas.
 
-Por defecto se genera un pack 4× (cada tile de 8×8 pasa a 32×32). Para 1440p o 4K puedes generar un pack 8×, que se divide automáticamente en páginas de textura:
+Por defecto se genera un pack 4× (cada tile de 8×8 pasa a 32×32). Para 1440p o 4K genera el pack 8× desde el principio, porque las alturas se calculan a la misma escala que el color:
 
 ```bash
-make pack ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms" PACK_SCALE=8
+make remaster ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms" PACK_SCALE=8
 ```
+
+El pack 8× se divide automáticamente en páginas de color y de altura (`pack.json` + `pages/`), con carga perezosa.
 
 Puedes ajustar el acabado sin volver a extraer:
 
 ```bash
-make cinematic ROM="..." CINE_BEVEL=0.55 CINE_LIGHT=315,48 CINE_NOISE=0.03
+make cinematic ROM="..." CINE_BEVEL=2.2 CINE_LIGHT=315,48 CINE_NOISE=0.03
 make pack ROM="..."
 make run ROM="..."
 ```
 
-Si prefieres el acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí), usa el mismo motor con la paleta cinematográfica; procesa todo el catálogo y luego empaqueta:
+`CINE_BEVEL` es el radio del bisel en píxeles de juego (1.8 por defecto): súbelo para un volumen más redondo y bájalo para un acabado más plano.
 
-```bash
-make cinematic ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
-make pack ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
-```
+El acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí) ya es el que aplica `make remaster`. La paleta está en `tools/grades.py`: cambia un color allí, vuelve a lanzar `make cinematic` y `make pack`, y el emulador graduará también el fondo y los tiles sin remasterizar con `hd/palette.json`.
 
-El pack lleva color y altura en paralelo; el filtro **REMASTER 2026** combina esa luz con bloom y tone mapping, y **F10** compara con el original. Para probar otra dirección de luz, `cmd/preview` acepta `-light "x,y"` y `-noheight`.
+El albedo plano es el modo por defecto; para hornear la luz en el PNG usa `CINE_SHADED=1`. Para empaquetar sin mapa de altura (vuelve al relieve por gradiente del shader) usa `CINE_HEIGHTS=0`.
+
+El pack lleva color y altura en paralelo. El filtro **REMASTER 2026** combina esa luz con bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. Para probar otra dirección de luz, `cmd/preview` acepta `-light "x,y"`, `-noheight` y `-nosky`.
 
 La extracción agrupa bloques de fondo de 8×8 tiles para vectorizar escenarios completos en vez de tiles aislados. Usa `BG_GROUP=0` para desactivarlos o `BG_PROTECT=3` para proteger más filas del HUD.
 

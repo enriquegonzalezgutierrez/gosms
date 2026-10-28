@@ -13,6 +13,8 @@ import (
 var (
 	fallbackSprImg = ebiten.NewImage(8, 8)
 	fallbackSprBuf = make([]byte, 8*8*4)
+	shadowMaskImg  = ebiten.NewImage(8, 8)
+	shadowMaskBuf  = make([]byte, 8*8*4)
 )
 
 func (hd *HDRenderer) drawFallbackSprite(screen *ebiten.Image, tileData []byte, cram []byte, drawX, drawY, scale float64) {
@@ -56,12 +58,78 @@ func (hd *HDRenderer) drawFallbackSprite(screen *ebiten.Image, tileData []byte, 
 	screen.DrawImage(fallbackSprImg, op)
 }
 
+// tileHasHole reports whether a sprite tile uses colour index 0 somewhere.
+// Index 0 is the transparent colour of a sprite; a tile without it is a solid
+// rectangle and must not cast a rectangular shadow over the scene.
+// spriteShadowMask builds an 8x8 mask from the original tile, with only the
+// non-transparent pixels. The HD tile may be an opaque composite (a cloud over
+// its sky); using its alpha would project a rectangle.
+func spriteShadowMask(tileData []byte) {
+	for i := 0; i < 8*8; i++ {
+		shadowMaskBuf[i*4] = 255
+		shadowMaskBuf[i*4+1] = 255
+		shadowMaskBuf[i*4+2] = 255
+		shadowMaskBuf[i*4+3] = 0
+	}
+	for y := 0; y < 8; y++ {
+		b0 := tileData[y*4]
+		b1 := tileData[y*4+1]
+		b2 := tileData[y*4+2]
+		b3 := tileData[y*4+3]
+		for x := 0; x < 8; x++ {
+			bit := 7 - x
+			c := ((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3)
+			if c != 0 {
+				shadowMaskBuf[(y*8+x)*4+3] = 255
+			}
+		}
+	}
+	shadowMaskImg.WritePixels(shadowMaskBuf)
+}
+
+func tileHasHole(tileData []byte) bool {
+	for y := 0; y < 8; y++ {
+		b0 := tileData[y*4]
+		b1 := tileData[y*4+1]
+		b2 := tileData[y*4+2]
+		b3 := tileData[y*4+3]
+		for x := 0; x < 8; x++ {
+			bit := 7 - x
+			c := ((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3)
+			if c == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type bgDrawItem struct {
 	img          *ebiten.Image
 	himg         *ebiten.Image
 	drawX, drawY float64
 	sX, sY       float64
 	tX, tY       float64
+}
+
+// Backdrop devuelve el color del fondo del VDP ya graduado con la paleta del
+// pack. Es el color que usa el cielo plano del juego y el que el pase de cielo
+// sustituye por el degradado.
+func (hd *HDRenderer) Backdrop(v *vdp.VDP) color.RGBA {
+	if v == nil {
+		return color.RGBA{}
+	}
+	return hd.GradeColor(decodeColorVDP(v.CRAM[16+int(v.Reg[7]&0x0F)]))
+}
+
+// IsSkyColor tells whether a backdrop is a daylight sky (blue dominant). The
+// sky pass must not repaint a black cave or a red backdrop.
+func IsSkyColor(c color.RGBA) bool {
+	if int(c.B) <= 80 || int(c.B) <= int(c.R)+30 {
+		return false
+	}
+	// Azul acero (G > R) o azul puro de la consola (B muy alto).
+	return int(c.G) > int(c.R)+10 || int(c.B) > 200
 }
 
 // DrawLayer composes the remastered background and sprites for one VDP frame.
@@ -223,9 +291,21 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 	}
 
 	type spriteDraw struct {
-		img  *ebiten.Image
-		op   *ebiten.DrawImageOptions
-		himg *ebiten.Image
+		img      *ebiten.Image
+		op       *ebiten.DrawImageOptions
+		himg     *ebiten.Image
+		tileData []byte
+		drawX    float64
+		drawY    float64
+		shadow   bool
+	}
+	type spritePart struct {
+		img      *ebiten.Image
+		op       *ebiten.DrawImageOptions
+		himg     *ebiten.Image
+		tileData []byte
+		drawX    float64
+		drawY    float64
 	}
 	var spriteDraws []spriteDraw
 
@@ -236,6 +316,7 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 			parts = 2
 		}
 
+		var spriteParts []spritePart
 		for p := 0; p < parts; p++ {
 			tileIdx := s.tile + p
 			pat := (patBase + tileIdx*32) & 0x3FFF
@@ -260,10 +341,24 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 				if heightDst != nil {
 					himg = hd.GetHDHeight(tileData, sprCram, true)
 				}
-				spriteDraws = append(spriteDraws, spriteDraw{img: img, op: op, himg: himg})
+				spriteParts = append(spriteParts, spritePart{img: img, op: op, himg: himg, tileData: tileData, drawX: drawX, drawY: drawY})
 			} else {
 				hd.drawFallbackSprite(screen, tileData, sprCram, drawX, drawY, scale)
 			}
+		}
+
+		// La sombra es de la figura, no de cada tile. Solo proyectan sombra los
+		// sprites con algun pixel transparente; un tile opaco (una nube sobre
+		// su fondo) no debe dibujar un rectangulo negro.
+		shadow := false
+		for _, part := range spriteParts {
+			if tileHasHole(part.tileData) {
+				shadow = true
+				break
+			}
+		}
+		for _, part := range spriteParts {
+			spriteDraws = append(spriteDraws, spriteDraw{img: part.img, op: part.op, himg: part.himg, tileData: part.tileData, drawX: part.drawX, drawY: part.drawY, shadow: shadow})
 		}
 	}
 
@@ -279,11 +374,17 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 			{offset + 4, offset*1.1 + 4, 0.08},
 		}
 		for _, item := range spriteDraws {
+			if !item.shadow || !tileHasHole(item.tileData) {
+				continue
+			}
+			spriteShadowMask(item.tileData)
 			for _, s := range samples {
-				op := *item.op
-				op.GeoM.Translate(s[0], s[1])
+				op := &ebiten.DrawImageOptions{}
+				op.Filter = ebiten.FilterLinear
+				op.GeoM.Scale(scale, scale)
+				op.GeoM.Translate(item.drawX+s[0], item.drawY+s[1])
 				op.ColorScale.Scale(0, 0, 0, float32(s[2]))
-				screen.DrawImage(item.img, &op)
+				screen.DrawImage(shadowMaskImg, op)
 			}
 		}
 	}

@@ -6,6 +6,7 @@ import shutil
 import sys
 
 import grades
+import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageOps
 
 
@@ -243,6 +244,44 @@ def write_palette(hd_dir, work_dir):
         json.dump({"grade": grade_name, "colors": colors}, output, indent=2, ensure_ascii=False)
 
 
+def grade_name(work_dir):
+    marker = os.path.join(work_dir, "grade.json")
+    if not os.path.exists(marker):
+        return "none"
+    try:
+        with open(marker, encoding="utf-8") as source:
+            return json.load(source).get("name", "none")
+    except (OSError, ValueError):
+        return "none"
+
+
+def flatten_sky_heights(remastered, heights, work_dir):
+    """Deja la altura del cielo en la referencia plana (0).
+
+    El fondo de las nubes y el cielo comparten el mismo azul graduado. La altura
+    de una pieza debe quedar por encima del cielo; si el cielo vale 1.0, el
+    borde de la nube es un valle y el shader lo sombrea como una linea negra.
+    Con el cielo a 0, las nubes y el terreno quedan por encima y el pase de
+    cielo se encarga del degradado.
+    """
+    name = grade_name(work_dir)
+    grade = grades.GRADES.get(name)
+    if grade is None:
+        return
+    sky = np.array(grade((0x00, 0x00, 0xFF))[:3], dtype=np.int16)
+    for index, image in remastered.items():
+        height = heights.get(index)
+        if height is None:
+            continue
+        rgba = np.asarray(image.convert("RGBA"), dtype=np.int16)
+        mask = (np.abs(rgba[..., :3] - sky).max(axis=-1) <= 8) & (rgba[..., 3] > 200)
+        if not mask.any():
+            continue
+        values = np.asarray(height.convert("L"), dtype=np.uint8).copy()
+        values[mask] = 0
+        heights[index] = Image.fromarray(values, mode="L")
+
+
 def load_height_map(path, size):
     """Carga el mapa de altura (L) de un tile u objeto, o None si no existe."""
     if not os.path.exists(path):
@@ -371,6 +410,8 @@ def pack(rom_name):
                 os.path.join(work_dir, "heights", "tiles", tile_filename(item)),
                 (TILE_SIZE, TILE_SIZE),
             )
+
+    flatten_sky_heights(remastered, heights, work_dir)
 
     covered_tiles = fallback_tiles | set(object_tiles) | override_tiles
     nearest_count = max(0, len(tiles) - len(covered_tiles))

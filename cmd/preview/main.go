@@ -127,6 +127,8 @@ func main() {
 	filter := flag.String("filter", "modern", "pixel, smooth, modern, crt, scanlines o mono")
 	light := flag.String("light", "", "luz de relieve en pantalla como \"x,y\" (por defecto la del preset)")
 	noHeight := flag.Bool("noheight", false, "desactiva la iluminacion por mapa de altura")
+	noSky := flag.Bool("nosky", false, "desactiva el degradado moderno del cielo")
+	pause := flag.Int("pause", -1, "pulsa PAUSE/NMI en este frame (util para capturar el mapa)")
 	flag.Parse()
 	if flag.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "Uso: preview [opciones] <rom.sms>")
@@ -153,6 +155,9 @@ func main() {
 	}
 	m := machine.New(rom)
 	for i := 0; i < *frames; i++ {
+		if i == *pause {
+			m.CPU.NMI = true
+		}
 		m.CPU.Pad1 = inputForFrame(i, *bot)
 		m.RunFrame()
 	}
@@ -195,6 +200,13 @@ func main() {
 	opts := video.DefaultOptions(preset, *hd)
 	if *hd && machine.HD != nil && machine.HD.HasHeight && !*noHeight {
 		opts.Height = heightLayer
+	}
+	if *hd && machine.HD != nil && machine.HD.Active && !*noSky &&
+		(preset == video.PresetModern || preset == video.PresetCRT) {
+		if c := machine.HD.Backdrop(m.VDP); machine.IsSkyColor(c) {
+			opts.Sky = true
+			opts.SkyColor = [3]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255}
+		}
 	}
 	if hasLight {
 		opts.ReliefLightX = float32(lightX)

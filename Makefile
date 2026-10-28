@@ -14,9 +14,11 @@ CINE_MATCH ?=
 CINE_LIMIT ?= 0
 CINE_SKIP ?= 0
 CINE_TILES ?= 1
-CINE_BEVEL ?= 0.45
+CINE_BEVEL ?= 1.8
 CINE_LIGHT ?= 315,48
 CINE_NOISE ?= 0.03
+CINE_SHADED ?= 0
+CINE_HEIGHTS ?= 1
 
 PY ?= $(shell [ -x .venv-remaster/bin/python ] && echo .venv-remaster/bin/python || echo python3)
 
@@ -42,7 +44,7 @@ help:
 	@printf "  $(GREEN)make remaster$(RESET)  Borra, extrae, remasteriza en cinematográfico y empaqueta una ROM\n"
 	@printf "  $(GREEN)make unpack$(RESET)     Prepara composites por objeto en remaster_workspace/\n"
 	@printf "  $(GREEN)make cinematic$(RESET)  Remasteriza todo el catálogo en HD cinematográfico (sin IA)\n"
-	@printf "  $(GREEN)make pack$(RESET)       Empaqueta los objetos remasterizados (PACK_SCALE=4, usa 8 para 1440p/4K)\n"
+	@printf "  $(GREEN)make pack$(RESET)       Empaqueta los objetos remasterizados (misma PACK_SCALE que el vectorizado)\n"
 	@printf "  $(GREEN)make preview$(RESET)    Renderiza un frame: make preview ROM=... [PREVIEW_FILTER=modern] [PREVIEW_HD=true]\n"
 	@printf "  $(GREEN)make setup$(RESET)      Crea .venv-remaster con numpy (opcional, acelera el vectorizado)\n"
 	@printf "  $(GREEN)make release$(RESET)    Compila para Linux/Windows/Android y genera los zips\n"
@@ -112,6 +114,8 @@ ifdef ROM
 	if [ -n "$(CINE_MATCH)" ]; then set -- "$$@" --match "$(CINE_MATCH)"; fi; \
 	if [ "$(CINE_SKIP)" = "1" ]; then set -- "$$@" --skip-existing; fi; \
 	if [ "$(CINE_TILES)" = "0" ]; then set -- "$$@" --no-tiles; fi; \
+	if [ "$(CINE_SHADED)" = "1" ]; then set -- "$$@" --shaded; fi; \
+	if [ "$(CINE_HEIGHTS)" = "0" ]; then set -- "$$@" --no-heights; fi; \
 	GOSMS_SCALE=$(PACK_SCALE) PYTHONUNBUFFERED=1 $(PY) tools/cinematic_tool.py "$$@"
 else
 	@printf "Uso: make cinematic ROM='roms/juego.sms' [PACK_SCALE=4] [CINE_MATCH=sprite_] [CINE_ONLY=id] [CINE_LIMIT=0] [CINE_SKIP=0]\n"

@@ -7,7 +7,7 @@ calculan sobre la paleta nueva.
 
 import numpy as np
 
-# Paleta de la consola -> paleta de cine. Los siete colores que usa el juego.
+# Paleta de la consola -> paleta de cine. Los colores principales del juego.
 CINEMATIC = {
     (0x55, 0x55, 0x00): (0x2C, 0x1E, 0x15),  # oliva -> castaño oscuro (pelo)
     (0xFF, 0xAA, 0x00): (0xD2, 0x8A, 0x56),  # naranja -> piel tostada
@@ -16,6 +16,12 @@ CINEMATIC = {
     (0xAA, 0x00, 0x00): (0x7E, 0x1C, 0x16),  # granate -> granate profundo
     (0x00, 0x00, 0xFF): (0x34, 0x63, 0x9C),  # azul -> azul acero
     (0x00, 0x00, 0x00): (0x1A, 0x15, 0x12),  # negro -> tinta calida
+    # Colores que no estaban en la tabla y salian neón. El cian es el fondo de
+    # los tiles de nube: al llevarlo al azul acero, la nube deja de verse como
+    # un rectangulo y el degradado del cielo la integra.
+    (0x00, 0xFF, 0xFF): (0x34, 0x63, 0x9C),  # cian -> azul acero (nubes)
+    (0x00, 0xAA, 0xAA): (0x2E, 0x5A, 0x78),  # turquesa -> azul profundo
+    (0xFF, 0xFF, 0x00): (0xD2, 0xB0, 0x62),  # amarillo -> oro
 }
 
 

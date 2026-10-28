@@ -1,0 +1,42 @@
+//kage:unit pixels
+package main
+
+// Cielo moderno para el remaster.
+//
+// El cielo del SMS es un color plano (un tile vacio o el registro de fondo).
+// Este pase lo sustituye por un degradado vertical suave con un halo de sol en
+// la direccion de la luz y un dither minimo para que no aparezcan bandas.
+// Solo cambia los pixeles que coinciden con SkyColor: el terreno, los sprites y
+// las nubes conservan su color.
+
+var SkyColor vec3
+var TopColor vec3
+var HorizonColor vec3
+var Sun vec2
+var Glow float
+var DitherAmount float
+
+func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
+	c := imageSrc0At(src0Pos)
+
+	// El cielo es un color plano exacto. Un margen pequeno absorbe el ruido
+	// del pase de altura sin tocar otros azules del dibujo.
+	if distance(c.rgb, SkyColor) > 0.06 {
+		return c
+	}
+
+	size := imageSrc0Size()
+	t := clamp(src0Pos.y/size.y, 0.0, 1.0)
+	g := mix(TopColor, HorizonColor, pow(t, 1.25))
+
+	p := src0Pos / size
+	d := distance(p, Sun)
+	glow := exp(-d*d*22.0) * Glow
+	g = mix(g, vec3(1.0, 0.93, 0.80), glow)
+
+	// Dithering triangular barato: rompe el escalonado del degradado.
+	n := fract(sin(dot(dstPos.xy, vec2(12.9898, 78.233))) * 43758.5453)
+	g += vec3((n-0.5)*DitherAmount)
+
+	return vec4(clamp(g, vec3(0.0), vec3(1.0)), c.a)
+}

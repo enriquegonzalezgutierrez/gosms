@@ -23,19 +23,43 @@ func heightAt(p vec2) float {
 	return imageSrc1At(clamp(p, vec2(0.0), limit)).r
 }
 
+// heightNear ignora el escalon que hay entre una figura y el fondo. Fuera de
+// una pieza la altura vale 0, y tomar esa caida como una grieta pintaba de
+// negro el contorno de cada sprite. Solo se considera relieve cuando los dos
+// lados tienen altura; el borde exterior se queda con la altura interior.
+func heightNear(p vec2, center float) float {
+	h := heightAt(p)
+	if center > 0.02 && h < 0.02 {
+		return center
+	}
+	return h
+}
+
 func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	c := imageSrc0At(src0Pos)
 	if c.a < 0.002 {
 		return c
 	}
 
-	hl := heightAt(src0Pos - vec2(1.5, 0.0))
-	hr := heightAt(src0Pos + vec2(1.5, 0.0))
-	hu := heightAt(src0Pos - vec2(0.0, 1.5))
-	hd := heightAt(src0Pos + vec2(0.0, 1.5))
+	center := heightAt(src0Pos)
+	hl := heightNear(src0Pos-vec2(1.5, 0.0), center)
+	hr := heightNear(src0Pos+vec2(1.5, 0.0), center)
+	hu := heightNear(src0Pos-vec2(0.0, 1.5), center)
+	hd := heightNear(src0Pos+vec2(0.0, 1.5), center)
 
 	gx := hr - hl
 	gy := hd - hu
+	// El fondo plano (altura 0) no debe recibir sombra de relieve.
+	if center <= 0.02 {
+		gx = 0.0
+		gy = 0.0
+	}
+	// La silueta de una pieza tambien cae a altura baja. Si se usa como
+	// relieve, el contorno se pinta de negro; se desvanece el gradiente en esa
+	// franja y se conserva solo el volumen interior.
+	edge := smoothstep(0.28, 0.62, center)
+	gx *= edge
+	gy *= edge
 	n := normalize(vec3(-gx*Slope, -gy*Slope, 1.0))
 
 	l := normalize(vec3(Light, 1.24))
@@ -49,7 +73,7 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	// color exacto (el cielo del VDP no tiene altura y no debe oscurecerse).
 	flat := l.z
 	shade := Ambient + Diffuse*(diff-flat)
-	shade -= clamp((abs(gx)+abs(gy))*Occlusion, 0.0, 0.45)
+	shade -= clamp((abs(gx)+abs(gy))*Occlusion, 0.0, 0.28)
 
 	// El color del atlas esta en sRGB. Multiplicar ahi aplasta las sombras
 	// hasta el negro; elevar el factor a 1/2.2 equivale a iluminar en lineal.

@@ -139,6 +139,13 @@ func (g *game) pipelineOptions() video.Options {
 	if g.hdMode && g.hdHeight != nil && machine.HD != nil && machine.HD.HasHeight {
 		opts.Height = g.hdHeight
 	}
+	if g.hdMode && machine.HD != nil && machine.HD.Active &&
+		(preset == video.PresetModern || preset == video.PresetCRT) {
+		if c := machine.HD.Backdrop(g.m.VDP); machine.IsSkyColor(c) {
+			opts.Sky = true
+			opts.SkyColor = [3]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255}
+		}
+	}
 	if g.videoFilter == VideoFilterScanlines {
 		// Keep the old scanline filter semantics: only the grid, no bloom or
 		// colour grading. The height lighting stays because the HD albedo is

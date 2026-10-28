@@ -267,9 +267,13 @@ def render(rgba, scale, bevel, light, noise, pad_edges, supersample=2, grade=Non
     if not want_height:
         return image
 
-    # Altura normalizada: 255 en el interior de una region y 0 en su borde, con
-    # el bisel como radio. Es lo que convierte el dibujo plano en volumen.
-    span = max(0.05, bevel) * scale
-    height_norm = np.clip(first / span, 0.0, 1.0) * coverage
+    # Altura normalizada: la silueta de la pieza manda (volumen exterior) y los
+    # bordes de color solo aportan un relieve suave. Antes la altura caia a 0 en
+    # cada frontera de color y los contornos finos se hundian: el shader los
+    # leia como grietas y los pintaba de negro.
+    span = max(0.25, bevel)
+    outer = np.clip(silhouette / span, 0.0, 1.0)
+    colour_relief = np.clip(first / span, 0.0, 1.0)
+    height_norm = outer * (0.72 + 0.28 * colour_relief)
     height_img = Image.fromarray((height_norm * 255.0).astype(np.uint8), mode="L")
     return image, height_img

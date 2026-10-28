@@ -39,7 +39,7 @@ def parse_args():
                         help="No regenera el fallback por tile")
     parser.add_argument("--skip-existing", action="store_true",
                         help="No rehace los PNG que ya existen")
-    parser.add_argument("--bevel", type=float, default=0.45, help="Radio del bisel en pixeles de juego")
+    parser.add_argument("--bevel", type=float, default=1.8, help="Radio del bisel en pixeles de juego")
     parser.add_argument("--light", type=parse_light, default=(315.0, 48.0),
                         help="Luz como azimut,elevacion")
     parser.add_argument("--noise", type=float, default=0.03, help="Amplitud del grano")

@@ -601,10 +601,11 @@ func (g *game) Update() error {
 				g.curTitle, ebiten.ActualFPS(), ebiten.ActualTPS()))
 		}
 
-		// Botón PAUSE físico de la consola (tecla P o botón Start del mando)
-		if inpututil.IsKeyJustPressed(ebiten.KeyP) || isGamepadButtonJustPressed(ebiten.StandardGamepadButtonCenterRight) {
+		// Botón PAUSE físico de la consola (P/Enter o Start del mando)
+		if inpututil.IsKeyJustPressed(ebiten.KeyP) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) ||
+			isGamepadButtonJustPressed(ebiten.StandardGamepadButtonCenterRight) {
 			g.m.CPU.NMI = true
-			g.showOSD("BOTÓN PAUSE (NMI)")
+			g.showOSD("PAUSE / START (NMI)")
 		}
 
 		// Save State: Guardar partida rápida con F5

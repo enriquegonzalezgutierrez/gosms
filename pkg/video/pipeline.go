@@ -55,6 +55,16 @@ type Options struct {
 	// viene, la iluminacion usa volumen real en vez del gradiente de color.
 	Height *ebiten.Image
 
+	// Cielo moderno: sustituye el color plano del cielo por un degradado con
+	// halo de sol. SkyColor lo pone el front end a partir del fondo del VDP.
+	Sky        bool
+	SkyColor   [3]float32
+	SkyTop     [3]float32
+	SkyHorizon [3]float32
+	SkySun     [2]float32
+	SkyGlow    float32
+	SkyDither  float32
+
 	// Iluminacion de relieve (solo tiene sentido con arte HD).
 	Relief          float32
 	ReliefStep      float32
@@ -81,6 +91,11 @@ func DefaultOptions(preset Preset, hd bool) Options {
 	opts := Options{
 		Preset:     preset,
 		HD:         hd,
+		SkyTop:     [3]float32{0.10, 0.24, 0.42},
+		SkyHorizon: [3]float32{0.38, 0.58, 0.72},
+		SkySun:     [2]float32{0.24, 0.18},
+		SkyGlow:    0.16,
+		SkyDither:  0.004,
 		Saturation: 1.0,
 		Contrast:   1.0,
 		Gamma:      1.0,
@@ -109,7 +124,7 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		opts.ReliefRim = 0.04
 		opts.HeightLit = 1
 		opts.HeightSlope = 4.2
-		opts.HeightOcclusion = 1.0
+		opts.HeightOcclusion = 0.6
 		// Con mapa de altura la referencia es la superficie plana: ambiental
 		// 1.0 mantiene el cielo y las zonas lisas con su color original.
 		opts.ReliefAmbient = 1.0
@@ -135,7 +150,7 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		opts.ReliefRim = 0.03
 		opts.HeightLit = 1
 		opts.HeightSlope = 4.5
-		opts.HeightOcclusion = 1.0
+		opts.HeightOcclusion = 0.6
 	}
 	return opts
 }
@@ -146,6 +161,7 @@ type Pipeline struct {
 	sharpen   *ebiten.Shader
 	relief    *ebiten.Shader
 	heightLit *ebiten.Shader
+	sky       *ebiten.Shader
 	blur      *ebiten.Shader
 	composite *ebiten.Shader
 	crt       *ebiten.Shader
@@ -158,6 +174,7 @@ type Pipeline struct {
 	bloomB    *ebiten.Image
 	bloomBlur *ebiten.Image
 	bloomUp   *ebiten.Image
+	skyImg    *ebiten.Image
 	width     int
 	height    int
 }
@@ -184,7 +201,7 @@ func loadShader(name string) (*ebiten.Shader, error) {
 // not need any shader at all, so they keep working even on a backend that
 // rejects one of the effects.
 func (p *Pipeline) compileBase() error {
-	if p.sharpen != nil && p.blur != nil && p.composite != nil && p.relief != nil && p.heightLit != nil {
+	if p.sharpen != nil && p.blur != nil && p.composite != nil && p.relief != nil && p.heightLit != nil && p.sky != nil {
 		return nil
 	}
 	var err error
@@ -201,6 +218,9 @@ func (p *Pipeline) compileBase() error {
 		return err
 	}
 	if p.heightLit, err = loadShader("heightlight.kage"); err != nil {
+		return err
+	}
+	if p.sky, err = loadShader("sky.kage"); err != nil {
 		return err
 	}
 	return nil
@@ -245,6 +265,7 @@ func (p *Pipeline) ensure(w, h int) {
 	p.bloomB = ebiten.NewImage(maxInt(1, w/4), maxInt(1, h/4))
 	p.bloomBlur = ebiten.NewImage(maxInt(1, w/4), maxInt(1, h/4))
 	p.bloomUp = ebiten.NewImage(w, h)
+	p.skyImg = ebiten.NewImage(w, h)
 }
 
 func maxInt(a, b int) int {
@@ -353,6 +374,24 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 		}
 		p.light.DrawRectShader(w, h, p.relief, lop)
 		source = p.light
+	}
+
+	// Cielo moderno. Va antes del sharpen y del bloom para que el degradado
+	// nazca limpio y el bloom solo lo suavice.
+	if opts.Sky {
+		p.skyImg.Fill(color.RGBA{A: 255})
+		kop := &ebiten.DrawRectShaderOptions{}
+		kop.Images[0] = source
+		kop.Uniforms = map[string]any{
+			"SkyColor":     []float32{opts.SkyColor[0], opts.SkyColor[1], opts.SkyColor[2]},
+			"TopColor":     []float32{opts.SkyTop[0], opts.SkyTop[1], opts.SkyTop[2]},
+			"HorizonColor": []float32{opts.SkyHorizon[0], opts.SkyHorizon[1], opts.SkyHorizon[2]},
+			"Sun":          []float32{opts.SkySun[0], opts.SkySun[1]},
+			"Glow":         opts.SkyGlow,
+			"DitherAmount": opts.SkyDither,
+		}
+		p.skyImg.DrawRectShader(w, h, p.sky, kop)
+		source = p.skyImg
 	}
 
 	// Sharpen pass. Even a small amount helps after scaling, but the user can
@@ -481,12 +520,12 @@ func maxFloat(a, b float32) float32 {
 }
 
 func (p *Pipeline) releaseTargets() {
-	for _, img := range []*ebiten.Image{p.base, p.light, p.work, p.work2, p.bloomA, p.bloomB, p.bloomBlur, p.bloomUp} {
+	for _, img := range []*ebiten.Image{p.base, p.light, p.work, p.work2, p.bloomA, p.bloomB, p.bloomBlur, p.bloomUp, p.skyImg} {
 		if img != nil {
 			img.Deallocate()
 		}
 	}
-	p.base, p.light, p.work, p.work2, p.bloomA, p.bloomB, p.bloomBlur, p.bloomUp = nil, nil, nil, nil, nil, nil, nil, nil
+	p.base, p.light, p.work, p.work2, p.bloomA, p.bloomB, p.bloomBlur, p.bloomUp, p.skyImg = nil, nil, nil, nil, nil, nil, nil, nil, nil
 }
 
 // Dispose releases the intermediate images. Ebiten images are garbage-collected

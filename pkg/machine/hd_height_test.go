@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gosms/pkg/vdp"
 )
 
 // TestLoadHDPackHeights checks that a v2 pack with parallel height pages is
@@ -74,5 +76,44 @@ func TestGradeColor(t *testing.T) {
 	unknown := color.RGBA{85, 0, 0, 255}
 	if got := hd.GradeColor(unknown); got != unknown {
 		t.Fatalf("GradeColor should pass unknown colours through, got %v", got)
+	}
+}
+
+// TestBackdrop checks that the VDP backdrop is translated with the pack
+// palette. The sky pass keys on this colour, so it must match the atlas.
+func TestBackdrop(t *testing.T) {
+	v := &vdp.VDP{}
+	v.CRAM[16] = 0x30 // azul puro: bits 4-5 = 3
+	v.Reg[7] = 0
+
+	hd := &HDRenderer{}
+	if got := hd.Backdrop(v); got != (color.RGBA{0, 0, 255, 255}) {
+		t.Fatalf("Backdrop without palette = %v, want pure blue", got)
+	}
+
+	steel := color.RGBA{52, 99, 156, 255}
+	hd.Palette = map[color.RGBA]color.RGBA{{0, 0, 255, 255}: steel}
+	if got := hd.Backdrop(v); got != steel {
+		t.Fatalf("Backdrop = %v, want %v", got, steel)
+	}
+}
+
+// TestIsSkyColor keeps the sky pass out of dark caves and red backdrops.
+func TestIsSkyColor(t *testing.T) {
+	cases := []struct {
+		name string
+		c    color.RGBA
+		want bool
+	}{
+		{"steel sky", color.RGBA{52, 99, 156, 255}, true},
+		{"pure blue", color.RGBA{0, 0, 255, 255}, true},
+		{"black cave", color.RGBA{26, 21, 18, 255}, false},
+		{"red cave", color.RGBA{126, 28, 22, 255}, false},
+		{"bone", color.RGBA{230, 223, 206, 255}, false},
+	}
+	for _, tc := range cases {
+		if got := IsSkyColor(tc.c); got != tc.want {
+			t.Errorf("IsSkyColor(%s) = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
