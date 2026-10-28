@@ -519,9 +519,9 @@ func (g *game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyF6) {
 		g.hdLight = !g.hdLight
 		if g.hdLight {
-			g.showOSD("LUZ HD: ACTIVADA")
+			g.showOSD("LUZ HD: ACTIVADA (VOLUMEN)")
 		} else {
-			g.showOSD("LUZ HD: DESACTIVADA (RENDIMIENTO)")
+			g.showOSD("LUZ HD: DESACTIVADA (ALBEDO + CIELO)")
 		}
 	}
 
@@ -944,7 +944,7 @@ func main() {
 		audioFilter: AudioFilterWarm, // Por defecto altavoz cálido analógico
 		pipeline:    video.New(),
 		hdMode:      *hd,
-		hdLight:     true,
+		hdLight:     false,
 	}
 
 	if flag.NArg() > 0 {

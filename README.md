@@ -55,7 +55,7 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 | **Botón PAUSE / START (Consola)** | `P` o `Enter` | — | Botón `Start` | Botón `[ PAUSE ]` |
 | **Cambiar Filtro de Vídeo** | `F1` o `V` | — | — | — |
 | **Alternar HD / Original** | `F10` | — | — | — |
-| **Luz de altura HD (rendimiento)** | `F6` | — | — | — |
+| **Luz de altura HD (opcional)** | `F6` | — | — | — |
 | **Cambiar Filtro de Audio** | `F2` o `B` | — | — | — |
 | **Guardar Partida Rápida** | `F5` | — | — | — |
 | **Cargar Partida Rápida** | `F8` | — | — | — |
@@ -127,7 +127,7 @@ El acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí) ya es 
 
 El albedo plano es el modo por defecto; para hornear la luz en el PNG usa `CINE_SHADED=1`. Para empaquetar sin mapa de altura (vuelve al relieve por gradiente del shader) usa `CINE_HEIGHTS=0`.
 
-El pack lleva color y altura en paralelo. El filtro **REMASTER 2026** combina esa luz con bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. Para probar otra dirección de luz, `cmd/preview` acepta `-light "x,y"`, `-noheight` y `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva luz, cielo y bloom.
+El pack lleva color y altura en paralelo. Por defecto el HD se ve como **albedo plano + cielo moderno**; la luz de altura es opcional y se activa con **F6**. El filtro **REMASTER 2026** añade bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. Para probar otra dirección de luz, `cmd/preview` acepta `-light "x,y"`, `-noheight` y `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva luz, cielo y bloom.
 
 La extracción agrupa bloques de fondo de 8×8 tiles para vectorizar escenarios completos en vez de tiles aislados. Usa `BG_GROUP=0` para desactivarlos o `BG_PROTECT=3` para proteger más filas del HUD.
 

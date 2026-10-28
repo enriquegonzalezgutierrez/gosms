@@ -11,7 +11,8 @@ Hace:
 
 - elimina el escalón de bloque de cada contorno (el borde deja de ser una escalera);
 - suaviza las esquinas con antialiasing real;
-- convierte cada color plano en una superficie con volumen, bisel y brillo;
+- puede convertir cada color plano en una superficie con volumen, bisel y brillo
+  (luz de altura opcional, **F6**);
 - guarda la altura de cada pieza para que la luz se calcule en pantalla, con
   especular, contraluz y sombra de los sprites;
 - sustituye el azul plano del cielo por un degradado con halo de sol;
@@ -91,9 +92,13 @@ Los tiles sueltos se procesan con el borde replicado, de modo que el bisel no di
 
 ## Iluminación en el emulador
 
-El pack lleva dos capas: color (albedo) y altura. En cada fotograma el emulador
-compone las dos con la misma geometría y un shader (`pkg/video/shaders/heightlight.kage`)
-reconstruye la normal con el gradiente de altura:
+El pack lleva dos capas: color (albedo) y altura. La luz de altura es
+**opcional y viene apagada por defecto**: el HD se ve como albedo plano con el
+cielo moderno, que es el modo más limpio y el que evita las costuras de altura.
+Pulsa **F6** para activar el volumen. Con la luz activa, el emulador compone las
+dos capas con la misma geometría y un shader
+(`pkg/video/shaders/heightlight.kage`) reconstruye la normal con el gradiente de
+altura:
 
 - **Luz direccional** desde arriba a la izquierda, igual para fondos y sprites;
 - **especular** ajustable y **contraluz** en los bordes inclinados;
@@ -141,8 +146,9 @@ Para comparar sin el pase:
 go run ./cmd/preview -frames 900 -filter modern -hd -nosky -out plano.png "roms/juego.sms"
 ```
 
-El pase se aplica solo con pack HD. El filtro **REMASTER 2026** lo activa junto
-al bloom y el tone mapping; **SUAVIZADO** deja ver el albedo plano para comparar.
+El cielo se aplica solo con pack HD y los filtros **REMASTER 2026** o **CRT**;
+**SUAVIZADO** deja ver el albedo plano. La luz de altura es independiente de eso:
+**F6** la enciende o apaga.
 
 Para probar otra dirección de luz sin tocar código:
 
@@ -260,8 +266,10 @@ go run ./cmd/preview -frames 900 -pause 600 -filter modern -hd \
 
 - Un sprite de 35×48 no contiene un rostro: el resultado será limpio y con volumen, pero no fotorrealista.
 - Las esquinas muy agudas se redondean ligeramente; `CINE_BEVEL=0.8` reduce el efecto.
-- La luz es un gradiente 2.5D: no hay oclusión entre objetos distintos ni
-  sombras proyectadas del escenario, solo la sombra suave de los sprites.
+- La luz de altura es un gradiente 2.5D y es opcional: no hay oclusión entre
+  objetos distintos ni sombras proyectadas del escenario, solo la sombra suave
+  de los sprites cuando está activa. El modo por defecto (albedo plano + cielo)
+  es el más limpio y el más rápido.
 - Un pack antiguo sin `heights.png`/`palette.json` sigue funcionando, pero usa
   el relieve por gradiente y el fondo sin graduar.
 - El texto y el HUD no se vectorizan aparte: si aparecen en un composite, se suavizan como cualquier otra región.
