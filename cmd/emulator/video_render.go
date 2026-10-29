@@ -181,6 +181,8 @@ func (g *game) pipelineOptions() video.Options {
 			_ = sx
 			opts.ScrollX = float32(g.parallaxX)
 			opts.ScrollY = float32(g.parallaxY)
+			opts.Time = float32(g.skyTime)
+			opts.CycleSeconds = float32(g.dayCycle)
 		}
 	}
 	if g.videoFilter == VideoFilterScanlines {

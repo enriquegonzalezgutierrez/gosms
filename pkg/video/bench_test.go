@@ -72,3 +72,13 @@ func BenchmarkDrawHDParallax(b *testing.B) {
 		opts.ScrollY = 0.12
 	})
 }
+
+func BenchmarkDrawHDParallaxNight(b *testing.B) {
+	benchmarkDraw(b, PresetModernPlus, true, 1024, 768, 1920, 1440, func(opts *Options) {
+		opts.Parallax = true
+		opts.ScrollX = 0.37
+		opts.ScrollY = 0.12
+		opts.Time = 135
+		opts.CycleSeconds = 180
+	})
+}

@@ -260,6 +260,9 @@ O dentro del juego:
   **MODERN+ PARALLAX** añade nubes y montañas
   procedurales con parallax; **SUAVIZADO** es el más ligero.
 - **F6** o **M** activa o desactiva la música de fondo opcional.
+- **MODERN+ PARALLAX** incluye un ciclo día/noche de 180 segundos; `-day-cycle`
+  cambia la duración y `0` lo desactiva. En `cmd/preview`, `-time` y `-cycle`
+  capturan una fase concreta.
 - **F3 / F4** guardan y cargan partida rápida; **F5** hace una captura.
 - **P** o **Enter** pulsa PAUSE/START (en Alex Kidd abre el mapa e inventario).
 - Al conectar un mando USB/Bluetooth, el menú muestra el modelo y el juego avisa

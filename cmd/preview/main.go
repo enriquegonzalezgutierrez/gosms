@@ -199,6 +199,8 @@ func main() {
 	parallax := flag.Bool("parallax", false, "activa el fondo lejano procedural (MODERN+ PARALLAX)")
 	debug := flag.Bool("debug", false, "imprime estado del VDP tras emular")
 	scrollX := flag.Float64("scrollx", -1, "fuerza el scroll X normalizado (pruebas de parallax)")
+	skyTime := flag.Float64("time", 45, "segundos del ciclo día/noche para la captura")
+	dayCycle := flag.Float64("cycle", 180, "duración del ciclo día/noche en segundos (0 lo desactiva)")
 	pause := flag.Int("pause", -1, "pulsa PAUSE/NMI en este frame (util para capturar el mapa)")
 	script := flag.String("script", "", "guion de entradas: frame:padhex:frames,...")
 	poke := flag.String("poke", "", "pokes de RAM: frame:addr=val,...")
@@ -317,6 +319,8 @@ func main() {
 		}
 		opts.ScrollX = float32(sx) / float32(vdp.ScreenW)
 		opts.ScrollY = float32(m.VDP.Reg[9]) / float32(vdp.ScreenH)
+		opts.Time = float32(*skyTime)
+		opts.CycleSeconds = float32(*dayCycle)
 		if *scrollX >= 0 {
 			opts.ScrollX = float32(*scrollX)
 		}

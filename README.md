@@ -152,6 +152,12 @@ Mismo frame, con **F10** y el filtro **MODERN+ PARALLAX**: cielo procedural con 
 |---|---|
 | <img src="docs/media/remaster/castle-original.png" width="480" alt="Castle of Illusion original"> | <img src="docs/media/remaster/castle-parallax.png" width="480" alt="Castle of Illusion con parallax 2.5"> |
 
+**Ciclo día/noche**
+
+<img src="docs/media/remaster/parallax-daynight.gif" width="720" alt="Ciclo día, atardecer y noche del parallax 2.5">
+
+El sol y la luna recorren el cielo, las nubes cambian de color, aparecen estrellas y la escena se tiñe de noche. Dura **180 segundos** por defecto; `-day-cycle` cambia la duración (`0` lo desactiva). En `cmd/preview`, `-time` y `-cycle` permiten capturar una fase concreta.
+
 Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaqueta):
 
 ```bash

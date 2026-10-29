@@ -88,16 +88,18 @@ escala 3 (768×576):
 | Modern+ | 201,9 | 4,952 |
 | Modern+ Parallax | 208,0 | 4,809 |
 
-El parallax procedural solo se ejecuta sobre píxeles de cielo, por eso no penaliza
-el resto de la escena. Aun así, es el efecto más caro del shader: si se toca el
-FBM o las capas de nubes, vuelve a medirlo.
+El parallax procedural solo se ejecuta sobre píxeles de cielo, por eso no
+penaliza el resto de la escena. Aun así, es el efecto más caro del shader: si se
+toca el FBM, las capas de nubes o el ciclo día/noche, vuelve a medirlo. El
+benchmark de noche incluye estrellas y luna.
 
 Microbenchmarks de vídeo (Ebiten en el entorno de test, valores relativos):
 
 | Benchmark | ms/frame |
 |---|---:|
 | `BenchmarkDrawHD/modern+` | 0,0135 |
-| `BenchmarkDrawHDParallax` | 0,0116 |
+| `BenchmarkDrawHDParallax` | 0,0495 |
+| `BenchmarkDrawHDParallaxNight` | 0,0400 |
 
 ## Comandos
 

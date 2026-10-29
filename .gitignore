@@ -26,6 +26,7 @@ run-*.txt
 # Capturas de documentación (sí se versionan)
 !docs/media/remaster/
 !docs/media/remaster/*.png
+!docs/media/remaster/*.gif
 
 # Archivos del sistema operativo y editores
 .DS_Store

@@ -19,6 +19,8 @@ var Sun vec2
 var Glow float
 var Parallax float
 var Scroll vec2
+var Time float
+var Cycle float
 
 // aces es la curva filmica de Narkowicz: comprime las luces altas sin
 // recortarlas en plano y mantiene los negros profundos.
@@ -79,31 +81,64 @@ func ridge(x float, base float, amp float, freq float, phase float) float {
 
 func parallaxSky(p vec2, scroll vec2, sun vec2, top vec3, horizon vec3) vec3 {
 	// El fondo lejano se mueve en sentido contrario al avance del mundo.
-	scroll = vec2(-scroll.x, -scroll.y)
-	// Cielo: gradiente atmosferico con un horizonte mas calido.
-	col := mix(top, horizon, pow(clamp(p.y, 0.0, 1.0), 1.16))
+	phase := 0.25
+	if Cycle > 0.1 {
+		phase = fract(Time / Cycle)
+	}
+	sunH := sin(phase * 6.28318)
+	day := smoothstep(-0.15, 0.15, sunH)
+	night := smoothstep(0.10, -0.20, sunH)
+	dusk := exp(-sunH*sunH*16.0)
 
-	// Sol: disco, halo y un anillo de lente muy sutil.
-	d := distance(p, sun)
-	glow := exp(-d*d*22.0)
+	// Paleta de cielo por fase: dia, atardecer y noche.
+	duskTop := mix(top, vec3(0.22, 0.10, 0.24), 0.62)
+	duskHorizon := mix(horizon, vec3(1.0, 0.42, 0.16), 0.72)
+	skyTop := mix(vec3(0.008, 0.014, 0.055), top, day)
+	skyHorizon := mix(vec3(0.030, 0.055, 0.14), horizon, day)
+	skyTop = mix(skyTop, duskTop, dusk*0.65)
+	skyHorizon = mix(skyHorizon, duskHorizon, dusk)
+	col := mix(skyTop, skyHorizon, pow(clamp(p.y, 0.0, 1.0), 1.16))
+
+	// Sol y luna recorren el cielo; el sol se oculta bajo el horizonte.
+	sunPos := vec2(0.10 + 0.80*phase, 0.56 - 0.34*max(sunH, 0.0))
+	moonPos := vec2(0.10 + 0.80*fract(phase+0.5), 0.56 - 0.34*max(-sunH, 0.0))
+	d := distance(p, sunPos)
+	sunVisible := smoothstep(-0.08, 0.06, sunH)
+	glow := exp(-d*d*22.0) * sunVisible
 	col = mix(col, vec3(0.98, 0.84, 0.62), glow*0.42)
-	col = mix(col, vec3(1.0, 0.97, 0.86), smoothstep(0.046, 0.036, d))
-	ring := exp(-abs(d-0.19)*38.0)
+	col = mix(col, vec3(1.0, 0.97, 0.86), smoothstep(0.046, 0.036, d)*sunVisible)
+	ring := exp(-abs(d-0.19)*38.0) * sunVisible
 	col = mix(col, vec3(1.0, 0.86, 0.62), ring*0.055)
 
-	// Tres capas de nubes a distintas escalas y velocidades. La capa cercana
-	// tiene mas detalle y recibe la luz calida del sol.
+	// Luna con halo frio.
+	md := distance(p, moonPos)
+	moonVisible := smoothstep(-0.08, 0.06, -sunH)
+	moonGlow := exp(-md*md*30.0) * moonVisible
+	col = mix(col, vec3(0.70, 0.80, 1.0), moonGlow*0.22)
+	col = mix(col, vec3(0.92, 0.95, 1.0), smoothstep(0.036, 0.028, md)*moonVisible)
+
+	// Estrellas solo de noche, con parpadeo lento.
+	if night > 0.01 {
+		cell := floor(p*vec2(260.0, 150.0))
+		star := step(0.997, hash2(cell))
+		twinkle := 0.65 + 0.35*sin(Time*1.7 + hash2(cell)*30.0)
+		col = col + vec3(0.85, 0.92, 1.0)*star*night*twinkle
+	}
+
+	// Nubes: blancas de dia, calidas al atardecer y oscuras de noche.
 	c1 := cloudLayer(p, scroll, vec2(4.2, 2.6), 0.18, 1.3)
 	c2 := cloudLayer(p, scroll, vec2(7.0, 4.0), 0.30, 5.7)
 	c3 := cloudLayer(p, scroll, vec2(11.0, 6.0), 0.46, 9.1)
 	cloud := clamp(c1*0.58 + c2*0.52 + c3*0.34, 0.0, 1.0)
 	cloud *= smoothstep(0.72, 0.46, p.y)
 	sunWarm := clamp(exp(-d*d*7.0), 0.0, 1.0)
-	cloudShade := mix(vec3(0.70, 0.77, 0.88), vec3(1.0, 0.98, 0.92), clamp(1.0-p.y*1.25, 0.0, 1.0))
-	cloudCol := mix(cloudShade, vec3(1.0, 0.95, 0.84), sunWarm*0.65)
+	cloudBase := mix(vec3(0.08, 0.11, 0.20), vec3(0.90, 0.94, 1.0), day)
+	cloudBase = mix(cloudBase, vec3(1.0, 0.58, 0.34), dusk*0.62)
+	cloudShade := mix(cloudBase*0.78, cloudBase, clamp(1.0-p.y*1.25, 0.0, 1.0))
+	cloudCol := mix(cloudShade, vec3(1.0, 0.95, 0.84), sunWarm*0.55*day)
 	col = mix(col, cloudCol, cloud*0.58)
 
-	ang := atan2(p.y-sun.y, p.x-sun.x)
+	ang := atan2(p.y-sunPos.y, p.x-sunPos.x)
 	rays := pow(max(0.0, cos(ang*17.0+1.2)), 30.0) * glow * 0.035
 	col = col + vec3(1.0, 0.88, 0.68)*rays
 
@@ -117,10 +152,12 @@ func parallaxSky(p vec2, scroll vec2, sun vec2, top vec3, horizon vec3) vec3 {
 	r3 := ridge(x3, 0.735, 0.042, 15.0, 0.9)
 	r4 := ridge(x4, 0.815, 0.036, 21.0, 2.5)
 
-	farCol := mix(horizon, vec3(0.26, 0.40, 0.56), 0.56)
-	midCol := mix(horizon, vec3(0.16, 0.32, 0.36), 0.60)
-	nearCol := mix(horizon, vec3(0.10, 0.24, 0.25), 0.66)
-	baseCol := mix(horizon, vec3(0.06, 0.16, 0.17), 0.74)
+	nightTint := mix(vec3(0.38, 0.44, 0.60), vec3(1.0), day)
+	sunsetTint := mix(vec3(1.0), vec3(1.10, 0.86, 0.74), dusk*0.35)
+	farCol := mix(skyHorizon, vec3(0.26, 0.40, 0.56), 0.56) * nightTint * sunsetTint
+	midCol := mix(skyHorizon, vec3(0.16, 0.32, 0.36), 0.60) * nightTint * sunsetTint
+	nearCol := mix(skyHorizon, vec3(0.10, 0.24, 0.25), 0.66) * nightTint * sunsetTint
+	baseCol := mix(skyHorizon, vec3(0.06, 0.16, 0.17), 0.74) * nightTint * sunsetTint
 	farTex := 0.90 + 0.10*noise2(vec2(p.x*46.0+scroll.x*0.15, p.y*26.0))
 	midTex := 0.88 + 0.12*noise2(vec2(p.x*58.0+scroll.x*0.24, p.y*32.0))
 	nearTex := 0.86 + 0.14*noise2(vec2(p.x*72.0+scroll.x*0.36, p.y*40.0))
@@ -134,10 +171,10 @@ func parallaxSky(p vec2, scroll vec2, sun vec2, top vec3, horizon vec3) vec3 {
 
 	// Bruma de horizonte y calidez baja: separa planos y evita el look de carton.
 	haze := smoothstep(0.48, 0.72, p.y) * (1.0 - smoothstep(0.74, 0.90, p.y))
-	col = mix(col, mix(horizon, vec3(0.93, 0.82, 0.66), 0.38), haze*0.20)
+	col = mix(col, mix(skyHorizon, vec3(0.93, 0.82, 0.66), 0.38), haze*0.20)
 	// Niebla acumulada en la base de las montanas para dar profundidad aerea.
 	fog := smoothstep(0.66, 0.96, p.y) * 0.22
-	col = mix(col, horizon, fog)
+	col = mix(col, skyHorizon, fog)
 	return col
 }
 
@@ -160,6 +197,14 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	skyMatch := distance(base.rgb, SkyColor) < 0.06
 	if SkyColor2.r >= 0.0 && distance(base.rgb, SkyColor2) < 0.06 {
 		skyMatch = true
+	}
+	if Parallax > 0.5 && Cycle > 0.1 {
+		phase := fract(Time / Cycle)
+		sunH := sin(phase * 6.28318)
+		night := smoothstep(0.10, -0.20, sunH)
+		dusk := exp(-sunH*sunH*16.0)
+		rgb = mix(rgb, rgb*vec3(0.60, 0.68, 0.90), night*0.38)
+		rgb = mix(rgb, rgb*vec3(1.06, 0.94, 0.82), dusk*0.10)
 	}
 	if Sky > 0.5 && skyMatch {
 		size := imageSrc0Size()

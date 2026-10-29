@@ -445,6 +445,9 @@ type game struct {
 	musicOn     bool
 	musicMix    bool
 
+	skyTime  float64
+	dayCycle float64
+
 	parallaxX     float64
 	parallaxY     float64
 	parallaxLastX int
@@ -755,6 +758,7 @@ func (g *game) loadGame(path string) error {
 	g.parallaxInit = false
 	g.parallaxX = 0
 	g.parallaxY = 0
+	g.skyTime = g.dayCycle * 0.25
 	return nil
 }
 
@@ -1072,6 +1076,12 @@ func (g *game) Update() error {
 
 		g.loopMusic()
 		g.updateParallax()
+		if g.dayCycle > 0 {
+			g.skyTime += 1.0 / 60.0
+			if g.skyTime >= g.dayCycle {
+				g.skyTime -= g.dayCycle
+			}
+		}
 		g.m.CPU.Pad1 = readPad(pad1Keys, 0)
 		g.m.CPU.Pad2 = readPad(pad2Keys, 1)
 		if g.benchFrames > 0 {
@@ -1426,6 +1436,7 @@ func main() {
 	romsDir := flag.String("roms", "roms", "directorio donde buscar juegos")
 	hd := flag.Bool("hd", false, "arrancar con el pack HD activado")
 	musicMix := flag.Bool("music-mix", false, "mezcla el PSG con theme.ogg en vez de silenciar la música original")
+	dayCycle := flag.Float64("day-cycle", 180, "duración en segundos del ciclo día/noche del parallax (0 lo desactiva)")
 	filter := flag.Int("filter", int(VideoFilterPixelPerfect), "filtro de vídeo inicial (0-5)")
 	bench := flag.Int("bench", 0, "ejecuta N frames y sale midiendo FPS (requiere ROM)")
 	benchWarmup := flag.Int("bench-warmup", 3600, "frames de calentamiento antes de medir con -bench")
@@ -1469,6 +1480,7 @@ func main() {
 		pipeline:     video.New(),
 		hdMode:       *hd,
 		musicMix:     *musicMix,
+		dayCycle:     *dayCycle,
 		benchFrames:  *bench,
 		benchWarmup:  *benchWarmup,
 		benchPresses: benchPresses,

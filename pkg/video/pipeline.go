@@ -77,6 +77,9 @@ type Options struct {
 	Parallax bool
 	ScrollX  float32
 	ScrollY  float32
+	// Time y CycleSeconds controlan el ciclo día/noche del parallax.
+	Time         float32
+	CycleSeconds float32
 
 	// Iluminacion de relieve (solo tiene sentido con arte HD).
 	Relief          float32
@@ -102,20 +105,21 @@ type Options struct {
 // DefaultOptions returns a conservative preset tuned for a 1080p display.
 func DefaultOptions(preset Preset, hd bool) Options {
 	opts := Options{
-		Preset:     preset,
-		HD:         hd,
-		SkyColor2:  [3]float32{-1, -1, -1},
-		SkyTop:     [3]float32{0.10, 0.24, 0.42},
-		SkyHorizon: [3]float32{0.38, 0.58, 0.72},
-		SkySun:     [2]float32{0.74, 0.20},
-		SkyGlow:    0.16,
-		Saturation: 1.0,
-		Contrast:   1.0,
-		Gamma:      1.0,
-		Brightness: 1.0,
-		Exposure:   1.0,
-		Dither:     1.0,
-		Lines:      192,
+		Preset:       preset,
+		HD:           hd,
+		SkyColor2:    [3]float32{-1, -1, -1},
+		SkyTop:       [3]float32{0.10, 0.24, 0.42},
+		SkyHorizon:   [3]float32{0.38, 0.58, 0.72},
+		SkySun:       [2]float32{0.74, 0.20},
+		SkyGlow:      0.16,
+		Saturation:   1.0,
+		Contrast:     1.0,
+		Gamma:        1.0,
+		Brightness:   1.0,
+		Exposure:     1.0,
+		Dither:       1.0,
+		Lines:        192,
+		CycleSeconds: 180,
 	}
 	switch preset {
 	case PresetModern, PresetModernPlus:
@@ -474,6 +478,8 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 		"Glow":           opts.SkyGlow,
 		"Parallax":       boolValue(opts.Parallax),
 		"Scroll":         []float32{opts.ScrollX, opts.ScrollY},
+		"Time":           opts.Time,
+		"Cycle":          opts.CycleSeconds,
 	}
 	p.work2.DrawRectShader(w, h, p.composite, cop)
 
