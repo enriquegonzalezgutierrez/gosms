@@ -76,12 +76,11 @@ def parse_args():
     return parser.parse_args()
 
 
-def render_file(source, target, args, scale, grade, height_target=None):
+def render_file(source, target, args, scale, grade, height_target, style):
     with Image.open(source) as image:
         rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8)
     started = time.monotonic()
     want_height = height_target is not None
-    style = args.style_params
     result = vector_tool.render(
         rgba, scale, style["bevel"], style["light"], style["noise"], None, args.supersample, grade,
         flat=style["flat"] and not args.shaded, want_height=want_height,
@@ -145,7 +144,7 @@ def main():
     # El empaquetador lee esta marca para graduar tambien el fondo del VDP.
     os.makedirs(work, exist_ok=True)
     with open(os.path.join(work, "grade.json"), "w", encoding="utf-8") as output:
-        json.dump({"name": args.style, "style": style}, output)
+        json.dump({"name": "cinematic", "style": args.style}, output)
 
     print(
         f"Estilo {args.style}: albedo {'plano' if style['flat'] and not args.shaded else 'horneado'}, "
@@ -153,6 +152,17 @@ def main():
         f"(bisel {style['bevel']}, luz {style['light'][0]:.0f},{style['light'][1]:.0f}, "
         f"grano {style['noise']}, AO {style['ao']}, supermuestreo {args.supersample})"
     )
+    fallback_style = dict(STYLE_PRESETS["cinematic"])
+
+    def style_for_object(name):
+        # La iluminacion horneada por bloque de fondo crea costuras entre
+        # bloques porque cada uno se procesa aislado. Los fondos se quedan en
+        # albedo plano (sin costuras) y el tratamiento moderno se reserva a
+        # sprites y objetos aislados, donde no hay mosaico que romper.
+        if name.startswith("bg_"):
+            return fallback_style
+        return style
+
     done = skipped = 0
     total = 0.0
     for name in sources:
@@ -164,7 +174,7 @@ def main():
         if complete and args.skip_existing:
             skipped += 1
             continue
-        total += render_file(os.path.join(source_dir, name), target, args, scale, grade, height_target)
+        total += render_file(os.path.join(source_dir, name), target, args, scale, grade, height_target, style_for_object(name))
         done += 1
     if skipped:
         print(f"   {skipped} objetos ya existian")
@@ -186,7 +196,7 @@ def main():
         complete = os.path.exists(target) and (height_target is None or os.path.exists(height_target))
         if complete and args.skip_existing:
             continue
-        render_file(os.path.join(tile_dir, name), target, args, scale, grade, height_target)
+        render_file(os.path.join(tile_dir, name), target, args, scale, grade, height_target, fallback_style)
         written += 1
     print(f"   {written} tiles en {time.monotonic() - started:.1f}s")
 
