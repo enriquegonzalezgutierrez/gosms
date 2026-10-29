@@ -93,6 +93,15 @@ type VDP struct {
 	irq         bool
 	IsPAL       bool
 
+	// LineScrollX/LineScrollY guardan el scroll efectivo de cada línea. Algunos
+	// juegos cambian el scroll a mitad de frame (HUD fijo, parallax); el
+	// renderizador HD los necesita para no arrastrar el scroll de la última
+	// línea a toda la pantalla.
+	LineScrollX [ScreenH]byte
+	LineScrollY [ScreenH]byte
+	// LineScrollValid indica que el frame actual ya capturó el scroll por línea.
+	LineScrollValid bool
+
 	// Frame es el framebuffer RGBA (256x192) listo para volcar.
 	Frame [ScreenW * ScreenH * 4]byte
 }
@@ -281,6 +290,11 @@ func (v *VDP) RenderLine(line int) {
 	// R0 D6: las dos primeras filas (16 px) no se desplazan en horizontal.
 	if v.Reg[0]&0x40 != 0 && line < 16 {
 		scrollX = 0
+	}
+	if line >= 0 && line < ScreenH {
+		v.LineScrollX[line] = byte(scrollX)
+		v.LineScrollY[line] = byte(scrollY)
+		v.LineScrollValid = true
 	}
 
 	var bgPri [ScreenW]bool

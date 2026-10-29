@@ -198,7 +198,16 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 		row := (bgY >> 3) % 28
 
 		sx := scrollX
-		if hScrollLock && (tileDrawY < 16) {
+		if v.LineScrollValid {
+			lineForScroll := tileDrawY
+			if lineForScroll < 0 {
+				lineForScroll = 0
+			}
+			if lineForScroll >= vdp.ScreenH {
+				lineForScroll = vdp.ScreenH - 1
+			}
+			sx = int(v.LineScrollX[lineForScroll])
+		} else if hScrollLock && tileDrawY < 16 {
 			sx = 0
 		}
 		fineX := sx & 7
