@@ -128,6 +128,12 @@ Misma captura y mismo frame de juego, sin menús. La columna derecha usa **F10**
 |---|---|
 | <img src="docs/media/remaster/sonic-original.png" width="480" alt="Sonic original"> | <img src="docs/media/remaster/sonic-remaster.png" width="480" alt="Sonic con F10 y Remaster 2026"> |
 
+**Castle of Illusion**
+
+| Original | F10 + Remaster 2026 |
+|---|---|
+| <img src="docs/media/remaster/castle-original.png" width="480" alt="Castle of Illusion original"> | <img src="docs/media/remaster/castle-remaster.png" width="480" alt="Castle of Illusion con F10 y Remaster 2026"> |
+
 Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaqueta):
 
 ```bash
