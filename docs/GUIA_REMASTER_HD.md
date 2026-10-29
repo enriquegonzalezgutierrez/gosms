@@ -63,17 +63,21 @@ paleta y grano están más abajo.
 
 El perfil de bot por defecto (`BOT=alex-kidd`) está pensado para Alex Kidd. Para
 Sonic u otros juegos usa `BOT=default`, que corre a la derecha y salta cada
-pocos frames:
+pocos frames. Para recorrer todos los niveles de los juegos con selector propio:
 
 ```bash
-make remaster ROM="roms/Sonic The Hedgehog (USA, Europe).sms" BOT=default
+# Sonic 1: los 18 actos
+make remaster ROM="roms/Sonic The Hedgehog (USA, Europe).sms" BOT=default SONIC_ALL=1
+
+# Castle of Illusion: los 6 mundos
+make remaster ROM="roms/Castle of Illusion Starring Mickey Mouse (U) (V1.1) [!].sms" BOT=default CASTLE_ALL=1
 ```
 
-La extracción solo ve las escenas por las que pasa el bot. `FRAMES=6500` cubre
-título y Green Hill en Sonic 1 (1663 composites, 2866 tiles, ~20 minutos). Para
-más zonas sube `FRAMES` o llega antes con level select/save states. En juegos
-que no sean Alex Kidd Rev 1 no hay decodificación estática del layout: todo sale
-de las escenas capturadas.
+Sin esos modificadores, la extracción solo ve las escenas por las que pasa el
+bot. `FRAMES=6500` cubre el recorrido de cada nivel; para más zonas sube
+`FRAMES` o llega antes con level select/save states. En juegos que no sean Alex
+Kidd Rev 1 no hay decodificación estática del layout: todo sale de las escenas
+capturadas.
 
 > El primer paso borra la carpeta de assets de esa ROM. Como todo se regenera desde la ROM, no se pierde nada que no puedas volver a calcular. Los overrides manuales de `remaster_workspace/tiles/` sí se pierden: cópialos fuera antes de repetir `make remaster`.
 
@@ -139,6 +143,8 @@ El cielo se aplica solo con pack HD y los filtros **REMASTER 2026** o **CRT**;
 | --- | --- | --- |
 | `PACK_SCALE` | `4` | Resolución final del pack (4× o 8×). |
 | `BOT` | `alex-kidd` | Perfil de la extracción; `default` corre a la derecha y salta (Sonic y otros). |
+| `SONIC_ALL` | vacío | `1` recorre los 18 actos de Sonic 1 con el selector de nivel por RAM. |
+| `CASTLE_ALL` | vacío | `1` recorre los 6 mundos de Castle of Illusion entrando por las puertas. |
 | `FRAMES` | `6500` | Frames emulados durante la extracción; más frames, más escenas. |
 
 Los ajustes de dibujo y de paleta están en la sección siguiente.

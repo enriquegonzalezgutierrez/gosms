@@ -6,6 +6,8 @@ PACK_SCALE ?= 4
 BG_GROUP ?= 8
 BG_PROTECT ?= 2
 BOT ?= alex-kidd
+SONIC_ALL ?=
+CASTLE_ALL ?=
 PREVIEW_FILTER ?= modern
 PREVIEW_HD ?= false
 PREVIEW_OUT ?= preview.png
@@ -19,6 +21,14 @@ CINE_LIGHT ?= 315,48
 CINE_NOISE ?= 0.03
 CINE_SHADED ?= 0
 CINE_HEIGHTS ?= 0
+PERF_FRAMES ?= 3600
+BENCH_WARMUP ?= 3600
+BENCH_SCRIPT ?=
+BENCH_FILTER ?= 5
+BENCH_HD ?= 1
+BENCH_SCALE ?= 5.625
+BENCH_HD_FLAG := $(if $(filter 1,$(BENCH_HD)),-hd,)
+BENCH_SCRIPT_FLAG := $(if $(BENCH_SCRIPT),-bench-script "$(BENCH_SCRIPT)",)
 
 PY ?= $(shell [ -x .venv-remaster/bin/python ] && echo .venv-remaster/bin/python || echo python3)
 
@@ -32,7 +42,7 @@ WHITE   := \033[1;37m
 RESET   := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test release release-complete audit android-docker clean-assets
+.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test bench perf bench-ui bench-ui-matrix release release-complete audit android-docker clean-assets
 
 help:
 	@printf "\n$(BLUE)  ╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
@@ -40,7 +50,13 @@ help:
 	@printf "$(BLUE)  ╚══════════════════════════════════════════════════════════════╝$(RESET)\n\n"
 	@printf "  $(GREEN)make run$(RESET)        Jugar ROM: $(CYAN)make run ROM=roms/sonic.sms$(RESET)\n"
 	@printf "  $(GREEN)make test$(RESET)       Ejecuta todos los tests de Go\n"
+	@printf "  $(GREEN)make bench$(RESET)      Microbenchmarks de CPU/VDP/PSG/máquina/vídeo (sin ROM externa)\n"
+	@printf "  $(GREEN)make perf$(RESET)       FPS de emulación headless: make perf ROM=... [PERF_FRAMES=3600]\n"
+	@printf "  $(GREEN)make bench-ui$(RESET)   FPS real HD+Remaster 2026: make bench-ui ROM=... [BENCH_WARMUP=3600]\n"
+	@printf "  $(GREEN)make bench-ui-matrix$(RESET) Matrix HD off/on × pixel/Remaster 2026\n"
 	@printf "  $(GREEN)make objects$(RESET)    Limpia y extrae tiles, mapas y bloques de fondo (FRAMES=6500 BG_GROUP=8)\n"
+	@printf "                              $(CYAN)SONIC_ALL=1$(RESET) recorre los 18 niveles de Sonic 1\n"
+	@printf "                              $(CYAN)CASTLE_ALL=1$(RESET) recorre los 6 mundos de Castle of Illusion\n"
 	@printf "  $(GREEN)make remaster$(RESET)  Borra, extrae, remasteriza en cinematográfico y empaqueta una ROM\n"
 	@printf "  $(GREEN)make unpack$(RESET)     Prepara composites por objeto en remaster_workspace/\n"
 	@printf "  $(GREEN)make cinematic$(RESET)  Remasteriza todo el catálogo en HD cinematográfico (sin IA)\n"
@@ -66,6 +82,39 @@ endif
 test:
 	@go test ./...
 
+bench:
+	@printf "$(BLUE)==> Microbenchmarks (3 pasadas, con memoria)...$(RESET)\n"
+	@go test ./pkg/cpu ./pkg/vdp ./pkg/psg ./pkg/machine ./pkg/video -run '^$$' -bench . -benchmem -count 3
+
+perf:
+ifdef ROM
+	@printf "$(BLUE)==> FPS de emulación headless (%s frames)...$(RESET)\n" "$(PERF_FRAMES)"
+	@go run ./cmd/headless -bench -frames "$(PERF_FRAMES)" "$(ROM)"
+else
+	@printf "Uso: make perf ROM='roms/juego.sms' [PERF_FRAMES=3600]\n"
+	@exit 2
+endif
+
+bench-ui:
+ifdef ROM
+	@printf "$(BLUE)==> FPS real con ventana (HD=$(BENCH_HD), filtro=$(BENCH_FILTER), escala=$(BENCH_SCALE), warmup=$(BENCH_WARMUP))...$(RESET)\n"
+	@go run ./cmd/emulator -bench "$(PERF_FRAMES)" -bench-warmup "$(BENCH_WARMUP)" $(BENCH_SCRIPT_FLAG) -filter "$(BENCH_FILTER)" -scale "$(BENCH_SCALE)" $(BENCH_HD_FLAG) "$(ROM)"
+else
+	@printf "Uso: make bench-ui ROM='roms/juego.sms' [PERF_FRAMES=3600] [BENCH_WARMUP=3600] [BENCH_FILTER=5] [BENCH_HD=1] [BENCH_SCALE=5.625]\n"
+	@exit 2
+endif
+
+bench-ui-matrix:
+ifdef ROM
+	@$(MAKE) bench-ui ROM="$(ROM)" BENCH_HD=0 BENCH_FILTER=0
+	@$(MAKE) bench-ui ROM="$(ROM)" BENCH_HD=0 BENCH_FILTER=5
+	@$(MAKE) bench-ui ROM="$(ROM)" BENCH_HD=1 BENCH_FILTER=0
+	@$(MAKE) bench-ui ROM="$(ROM)" BENCH_HD=1 BENCH_FILTER=5
+else
+	@printf "Uso: make bench-ui-matrix ROM='roms/juego.sms' [PERF_FRAMES=3600] [BENCH_WARMUP=3600]\n"
+	@exit 2
+endif
+
 clean-assets:
 	@printf "$(YELLOW)==> Eliminando la carpeta assets/ completa...$(RESET)\n"
 	@rm -rf assets
@@ -73,7 +122,7 @@ clean-assets:
 dump objects: clean-assets
 ifdef ROM
 	@printf "$(BLUE)==> Extrayendo tiles, objetos y mapas de escena...$(RESET)\n"
-	@go run ./cmd/dump_assets -frames "$(FRAMES)" -bot "$(BOT)" -bg-group "$(BG_GROUP)" -bg-protect "$(BG_PROTECT)" "$(ROM)"
+	@go run ./cmd/dump_assets -frames "$(FRAMES)" -bot "$(BOT)" -bg-group "$(BG_GROUP)" -bg-protect "$(BG_PROTECT)" $(if $(SONIC_ALL),-sonic,) $(if $(CASTLE_ALL),-castle,) "$(ROM)"
 else
 	@printf "Uso: make objects ROM='roms/Alex Kidd in Miracle World.sms'\n"
 	@exit 2

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
@@ -432,6 +433,15 @@ type game struct {
 	samplesBuf []int16
 	frames     int
 
+	// Medición de rendimiento con -bench.
+	benchFrames  int
+	benchWarmup  int
+	benchPlay    int
+	benchDone    int
+	benchStart   time.Time
+	benchPresses []benchPress
+	benchDefault bool
+
 	// Pipeline de post-procesado compartido con Android.
 	pipeline *video.Pipeline
 	hdTarget *ebiten.Image
@@ -456,6 +466,62 @@ type game struct {
 	// Textura temporal del upscaler EPX.
 	epxImg *ebiten.Image
 	epxBuf []byte
+}
+
+type benchPress struct {
+	start int
+	pad   byte
+	len   int
+}
+
+func parseBenchScript(s string) []benchPress {
+	var out []benchPress
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		fields := strings.Split(part, ":")
+		if len(fields) < 2 {
+			continue
+		}
+		var start int
+		var pad uint
+		length := 8
+		fmt.Sscanf(fields[0], "%d", &start)
+		fmt.Sscanf(fields[1], "%x", &pad)
+		if len(fields) > 2 {
+			fmt.Sscanf(fields[2], "%d", &length)
+		}
+		out = append(out, benchPress{start: start, pad: byte(pad), len: length})
+	}
+	return out
+}
+
+func defaultBenchScript() []benchPress {
+	// Un bot genérico: pulsa START varias veces para saltar títulos/menús y
+	// después mantiene derecha. Los saltos se generan en benchPad para no
+	// reservar millones de entradas.
+	return []benchPress{
+		{start: 300, pad: 0xEF, len: 8},
+		{start: 600, pad: 0xEF, len: 8},
+		{start: 900, pad: 0xEF, len: 8},
+		{start: 1200, pad: 0xEF, len: 8},
+		{start: 1500, pad: 0xF7, len: 1 << 30}, // derecha indefinida
+	}
+}
+
+func (g *game) benchPad(frame int) byte {
+	pad := byte(0xFF)
+	for _, p := range g.benchPresses {
+		if frame >= p.start && frame < p.start+p.len {
+			pad &= p.pad
+		}
+	}
+	if g.benchDefault && frame >= 1600 && (frame-1600)%90 < 8 {
+		pad &= 0xD7 // derecha + botón 2
+	}
+	return pad
 }
 
 func (g *game) loadGame(path string) error {
@@ -545,6 +611,24 @@ func (g *game) gamepadStatus() string {
 
 func (g *game) Update() error {
 	g.frames++
+	if g.benchFrames > 0 && g.state == StatePlaying {
+		g.benchPlay++
+		if g.benchPlay > g.benchWarmup {
+			if g.benchDone == 0 {
+				g.benchStart = time.Now()
+			}
+			if g.benchDone >= g.benchFrames {
+				elapsed := time.Since(g.benchStart)
+				fps := float64(g.benchDone) / elapsed.Seconds()
+				w, h := ebiten.WindowSize()
+				fmt.Printf("bench frames=%d warmup=%d elapsed=%.3fs ms_per_frame=%.3f fps=%.1f hd=%v filter=%s size=%dx%d\n",
+					g.benchDone, g.benchWarmup, elapsed.Seconds(), elapsed.Seconds()*1000/float64(g.benchDone), fps,
+					g.hdMode, videoFilterNames[g.videoFilter], w, h)
+				return ebiten.Termination
+			}
+			g.benchDone++
+		}
+	}
 	if g.osdTimer > 0 {
 		g.osdTimer--
 	}
@@ -768,6 +852,9 @@ func (g *game) Update() error {
 
 		g.m.CPU.Pad1 = readPad(pad1Keys, 0)
 		g.m.CPU.Pad2 = readPad(pad2Keys, 1)
+		if g.benchFrames > 0 {
+			g.m.CPU.Pad1 = g.benchPad(g.benchPlay)
+		}
 		g.m.RunFrame()
 
 		// Capturar frame recién procesado si el dumper está activo
@@ -1115,7 +1202,22 @@ func main() {
 	romsDir := flag.String("roms", "roms", "directorio donde buscar juegos")
 	hd := flag.Bool("hd", false, "arrancar con el pack HD activado")
 	filter := flag.Int("filter", int(VideoFilterPixelPerfect), "filtro de vídeo inicial (0-5)")
+	bench := flag.Int("bench", 0, "ejecuta N frames y sale midiendo FPS (requiere ROM)")
+	benchWarmup := flag.Int("bench-warmup", 3600, "frames de calentamiento antes de medir con -bench")
+	benchScript := flag.String("bench-script", "", "guion de entradas para -bench: frame:padhex:frames,...")
 	flag.Parse()
+	if *bench > 0 && flag.NArg() == 0 {
+		log.Fatal("-bench requiere una ROM como argumento")
+	}
+	var benchPresses []benchPress
+	benchDefault := false
+	if *bench > 0 {
+		benchPresses = parseBenchScript(*benchScript)
+		if len(benchPresses) == 0 {
+			benchPresses = defaultBenchScript()
+			benchDefault = true
+		}
+	}
 	initialFilter := VideoFilter(*filter)
 	if initialFilter < 0 || int(initialFilter) >= len(videoFilterNames) {
 		initialFilter = VideoFilterPixelPerfect
@@ -1131,16 +1233,20 @@ func main() {
 	player.Play()
 
 	g := &game{
-		state:       StateLoading,
-		img:         ebiten.NewImage(vdp.ScreenW, vdp.ScreenH),
-		fullscreen:  *fullscreen,
-		crop:        *crop,
-		audioBuf:    audioBuf,
-		videoFilter: initialFilter,
-		audioFilter: AudioFilterWarm, // Por defecto altavoz cálido analógico
-		pipeline:    video.New(),
-		hdMode:      *hd,
-		padNames:    make(map[ebiten.GamepadID]string),
+		state:        StateLoading,
+		img:          ebiten.NewImage(vdp.ScreenW, vdp.ScreenH),
+		fullscreen:   *fullscreen,
+		crop:         *crop,
+		audioBuf:     audioBuf,
+		videoFilter:  initialFilter,
+		audioFilter:  AudioFilterWarm, // Por defecto altavoz cálido analógico
+		pipeline:     video.New(),
+		hdMode:       *hd,
+		benchFrames:  *bench,
+		benchWarmup:  *benchWarmup,
+		benchPresses: benchPresses,
+		benchDefault: benchDefault,
+		padNames:     make(map[ebiten.GamepadID]string),
 	}
 
 	if flag.NArg() > 0 {
@@ -1190,6 +1296,10 @@ func main() {
 		h = menuH
 	}
 	ebiten.SetWindowSize(w, h)
+	if *bench > 0 {
+		ebiten.SetVsyncEnabled(false)
+		ebiten.SetTPS(ebiten.SyncWithFPS)
+	}
 
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)

@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"time"
 
 	"gosms/pkg/cpu"
 	"gosms/pkg/machine"
@@ -54,6 +55,8 @@ func main() {
 	wlog := flag.String("wlog", "", "rango addr:len para registrar la secuencia de escrituras a VRAM")
 	watch := flag.String("watch", "", "dirección de RAM a vigilar (escrituras), en hex")
 	wav := flag.String("wav", "", "fichero WAV donde volcar el audio generado")
+	bench := flag.Bool("bench", false, "mide el rendimiento y no escribe PNG")
+	benchWarmup := flag.Int("bench-warmup", 60, "frames descartados antes de medir con -bench")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
@@ -96,7 +99,14 @@ func main() {
 	const sr = 48000
 	samplesPerFrame := float64(sr) * float64(vdp.CyclesPerLine*vdp.TotalLines) / 3579545
 	m.CPU.PSG.SetSampleRate(sr)
+	var benchStart time.Time
+	var benchCycles, benchInstr uint64
 	for i := 0; i < *frames; i++ {
+		if *bench && i == *benchWarmup {
+			benchStart = time.Now()
+			benchCycles = m.CPU.Cycles
+			benchInstr = m.CPU.Instr
+		}
 		frameNo = i
 		m.CPU.Pad1 = 0xFF
 		if *start >= 0 && i >= *start && i < *start+8 {
@@ -128,6 +138,26 @@ func main() {
 
 	fmt.Printf("frames=%d pc=$%04X cyc=%d instr=%d status=$%02X regs=%v\n",
 		*frames, m.CPU.PC, m.CPU.Cycles, m.CPU.Instr, m.VDP.Status, m.VDP.Reg[:11])
+
+	if *bench {
+		timed := *frames - *benchWarmup
+		elapsed := time.Since(benchStart)
+		if timed <= 0 || elapsed <= 0 {
+			fmt.Fprintf(os.Stderr, "bench: el warmup (%d) debe ser menor que frames (%d)\n", *benchWarmup, *frames)
+		} else {
+			secs := elapsed.Seconds()
+			fmt.Printf("bench frames=%d warmup=%d elapsed=%.3fs ms_per_frame=%.3f fps=%.1f cycles_per_frame=%.0f instr_per_frame=%.0f\n",
+				timed, *benchWarmup, secs,
+				elapsed.Seconds()*1000/float64(timed),
+				float64(timed)/secs,
+				float64(m.CPU.Cycles-benchCycles)/float64(timed),
+				float64(m.CPU.Instr-benchInstr)/float64(timed))
+		}
+	}
+
+	if *out == "" || *bench {
+		return
+	}
 
 	img := image.NewRGBA(image.Rect(0, 0, vdp.ScreenW, vdp.ScreenH))
 	copy(img.Pix, m.VDP.Frame[:])

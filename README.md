@@ -96,13 +96,37 @@ make build
 # Ejecutar la suite de pruebas Go
 make test
 
+# Benchmarks del núcleo y FPS con una ROM real
+make bench
+make perf ROM="roms/juego.sms"
+make bench-ui ROM="roms/juego.sms"   # HD + Remaster 2026 por defecto
+
 # Ejecutar auditoría de compatibilidad de todas las ROMs
 make audit
 ```
 
+La línea base de rendimiento y los criterios para no romper los FPS durante
+refactors están en [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+
 ### Remasterizar una ROM
 
 El remaster es **matemático, sin IA**: vectoriza cada objeto con campos de distancia, aplica antialiasing real y deja el **albedo plano** con la paleta de cine. El emulador le añade el **cielo moderno** (degradado y halo de sol) y el postprocesado. No descarga modelos y es determinista.
+
+### Antes y después
+
+Misma captura y mismo frame de juego, sin menús. La columna derecha usa **F10** (pack HD 4×) y **F1 → Remaster 2026**.
+
+**Alex Kidd in Miracle World**
+
+| Original | F10 + Remaster 2026 |
+|---|---|
+| <img src="docs/media/remaster/alex-kidd-original.png" width="480" alt="Alex Kidd original"> | <img src="docs/media/remaster/alex-kidd-remaster.png" width="480" alt="Alex Kidd con F10 y Remaster 2026"> |
+
+**Sonic The Hedgehog**
+
+| Original | F10 + Remaster 2026 |
+|---|---|
+| <img src="docs/media/remaster/sonic-original.png" width="480" alt="Sonic original"> | <img src="docs/media/remaster/sonic-remaster.png" width="480" alt="Sonic con F10 y Remaster 2026"> |
 
 Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaqueta):
 
@@ -110,13 +134,17 @@ Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaque
 make remaster ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 ```
 
-Para otras ROMs, el perfil de controles de Alex Kidd no sirve; usa `BOT=default` (corre a la derecha y salta):
+Para otras ROMs, el perfil de controles de Alex Kidd no sirve; usa `BOT=default` (corre a la derecha y salta). Para los juegos con recorrido completo por niveles:
 
 ```bash
-make remaster ROM="roms/Sonic The Hedgehog (USA, Europe).sms" BOT=default
+# Sonic 1: los 18 actos con el selector de nivel por RAM
+make remaster ROM="roms/Sonic The Hedgehog (USA, Europe).sms" BOT=default SONIC_ALL=1
+
+# Castle of Illusion: los 6 mundos entrando por las puertas del castillo
+make remaster ROM="roms/Castle of Illusion Starring Mickey Mouse (U) (V1.1) [!].sms" BOT=default CASTLE_ALL=1
 ```
 
-La extracción solo captura las escenas por las que pasa el bot (`FRAMES`, 6500 por defecto). En Sonic 1 cubrió título y Green Hill: **1663 composites**, **2866 tiles**, pack 4× al 100 % en unos 20 minutos. Para más zonas, sube `FRAMES` o usa level select/save states antes del volcado.
+Sin esos modificadores, la extracción solo captura las escenas por las que pasa el bot (`FRAMES`, 6500 por defecto). Para más zonas, sube `FRAMES` o usa level select/save states antes del volcado.
 
 Necesita Python 3 con `numpy` y `Pillow`. `make setup` crea `.venv-remaster/` con ambas.
 

@@ -23,6 +23,10 @@ run-*.txt
 *.sav
 *.state
 
+# Capturas de documentación (sí se versionan)
+!docs/media/remaster/
+!docs/media/remaster/*.png
+
 # Archivos del sistema operativo y editores
 .DS_Store
 .idea/

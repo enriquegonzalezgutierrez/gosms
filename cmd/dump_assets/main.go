@@ -22,6 +22,81 @@ import (
 const extractionFrames = 6500
 const alexKiddV1CRC32 = 0xaed9aac4
 
+// Sonic 1 (Master System) stores the level to load at $D23E. Writing it while
+// the title screen is active is the same trick the Action Replay level-select
+// code uses, so each zone/act can be captured without playing the whole game.
+const sonicLevelRAM = 0xD23E
+const sonicLivesRAM = 0xD246
+
+var sonicLevelNames = []string{
+	"Green Hill 1", "Green Hill 2", "Green Hill 3",
+	"Bridge 1", "Bridge 2", "Bridge 3",
+	"Jungle 1", "Jungle 2", "Jungle 3",
+	"Labyrinth 1", "Labyrinth 2", "Labyrinth 3",
+	"Scrap Brain 1", "Scrap Brain 2", "Scrap Brain 3",
+	"Sky Base 1", "Sky Base 2", "Sky Base 3",
+}
+
+// Castle of Illusion keeps the three hall doors as 6-byte entities starting
+// at $C260. The first byte is the door index with bit 7 set (the pending-door
+// flag). Replacing it lets us enter any of the six worlds without clearing the
+// previous ones, which is what the normal game requires.
+const castleDoorEntityRAM = 0xC260
+const castleBootFrames = 4000
+
+var castleLevelNames = []string{
+	"Enchanted Forest", "Toy Land", "Dessert Factory",
+	"Library", "Clock Tower", "The Castle",
+}
+
+// castlePad reproduces the deterministic intro used to reach the castle hall:
+// skip the title, choose Normal, skip the story pages and walk to the first
+// door. From castleBootFrames on, the regular extraction bot takes over.
+func castlePad(frame int, bot string, bootFrames int) byte {
+	if frame >= bootFrames {
+		return inputForFrame(750+frame-bootFrames, bot)
+	}
+	pad := byte(0xFF)
+	for _, start := range []int{700, 1000, 1200, 1500, 1700, 1900, 2100, 2300, 2500, 2700, 2900, 3100, 3300} {
+		if frame >= start && frame < start+8 {
+			pad &= 0xEF // Botón 1 / START
+		}
+	}
+	if frame >= 1100 && frame < 1108 {
+		pad &= 0xFD // Abajo: selecciona Normal
+	}
+	if frame >= 3400 && frame < 3445 {
+		pad &= 0xF7 // Derecha hasta la primera puerta
+	}
+	if frame >= 3550 && frame < 3580 {
+		pad &= 0xFE // Arriba con Mickey ya detenido
+	}
+	return pad
+}
+
+func castleSessions(frames int) []extractionSession {
+	sessions := make([]extractionSession, len(castleLevelNames))
+	for i, name := range castleLevelNames {
+		sessions[i] = extractionSession{level: i, name: name, bootFrames: castleBootFrames, frames: castleBootFrames + frames}
+	}
+	return sessions
+}
+
+type extractionSession struct {
+	level      int
+	name       string
+	bootFrames int
+	frames     int
+}
+
+func sonicSessions(frames int) []extractionSession {
+	sessions := make([]extractionSession, len(sonicLevelNames))
+	for i, name := range sonicLevelNames {
+		sessions[i] = extractionSession{level: i, name: name, frames: frames}
+	}
+	return sessions
+}
+
 func inputForFrame(frame int, bot string) byte {
 	pad := byte(0xFF)
 	if frame >= 300 && frame < 550 && (frame/12)%2 == 0 {
@@ -346,11 +421,13 @@ func loadHumanObjectMetadata(path string) (map[string]string, []machine.TileObje
 func main() {
 	frames := flag.Int("frames", extractionFrames, "número de frames usados para descubrir tiles y objetos")
 	bot := flag.String("bot", "default", "perfil de controles: default o alex-kidd")
+	sonic := flag.Bool("sonic", false, "recorre los 18 niveles de Sonic 1 usando el selector de nivel de RAM")
+	castle := flag.Bool("castle", false, "recorre los 6 mundos de Castle of Illusion entrando por las puertas del castillo")
 	bgGroup := flag.Int("bg-group", 0, "tamaño en tiles de los bloques de fondo para remasterizar (0 = desactivado, 8 = 64x64 px)")
 	bgProtect := flag.Int("bg-protect", 0, "filas superiores de la name table que no se agrupan (HUD)")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Println("Uso: dump_assets [-frames N] [-bot default|alex-kidd] [-bg-group 8] [-bg-protect 2] <rom.sms>")
+		fmt.Println("Uso: dump_assets [-frames N] [-bot default|alex-kidd] [-sonic] [-castle] [-bg-group 8] [-bg-protect 2] <rom.sms>")
 		return
 	}
 	if *frames < 1 {
@@ -384,8 +461,21 @@ func main() {
 	}
 
 	fmt.Printf("🚀 Ejecutando volcado offline de alta fidelidad para '%s'...\n", baseName)
-	m := machine.New(data)
 	romTileOffsets := indexROMTiles(data)
+
+	sessions := []extractionSession{{level: -1, frames: *frames}}
+	if *sonic {
+		if len(data) == 0 || baseName == "" {
+			fmt.Println("No se pudo preparar el recorrido de niveles de Sonic.")
+			return
+		}
+		sessions = sonicSessions(*frames)
+		fmt.Printf("🎮 Sonic 1: recorriendo %d niveles (selector RAM $%04X).\n", len(sessions), sonicLevelRAM)
+	}
+	if *castle {
+		sessions = castleSessions(*frames)
+		fmt.Printf("🏰 Castle of Illusion: recorriendo %d mundos (puerta RAM $%04X).\n", len(sessions), castleDoorEntityRAM)
+	}
 
 	uniqueTiles := make(map[string]*image.RGBA)
 	var manifest []machine.TileManifest
@@ -414,110 +504,159 @@ func main() {
 		return index, h
 	}
 
-	for f := 0; f < *frames; f++ {
-		m.CPU.Pad1 = inputForFrame(f, *bot)
-		m.RunFrame()
-
-		if f%2 == 0 {
-			v := m.VDP
-			bgCram0 := v.CRAM[0:16]
-			bgCram1 := v.CRAM[16:32]
-			sprCram := v.CRAM[16:32]
-			tileMap := make([][]int, 28)
-			for row := range tileMap {
-				tileMap[row] = make([]int, 32)
-				for col := range tileMap[row] {
-					tileMap[row][col] = -1
+	for _, session := range sessions {
+		m := machine.New(data)
+		totalFrames := session.frames
+		if totalFrames == 0 {
+			totalFrames = *frames
+		}
+		for f := 0; f < totalFrames; f++ {
+			globalFrame := f
+			level := session.level
+			isBoot := *castle && f < session.bootFrames
+			if *sonic {
+				globalFrame = session.level*10000 + f
+				if f < 700 {
+					m.CPU.RAM[(sonicLevelRAM-0xC000)&0x1FFF] = byte(session.level)
 				}
+				m.CPU.RAM[(sonicLivesRAM-0xC000)&0x1FFF] = 9
+			}
+			if *castle {
+				// La puerta se recrea al cargar el recibidor; mantenemos el
+				// índice del mundo deseado hasta que arranque el nivel.
+				if f >= 3380 && f < 3900 {
+					m.CPU.RAM[(castleDoorEntityRAM-0xC000)&0x1FFF] = byte(0x80 | level)
+				}
+				if f >= 3400 {
+					m.CPU.RAM[(0xC0BD-0xC000)&0x1FFF] = 3 // energía infinita
+					m.CPU.RAM[(0xC0C8-0xC000)&0x1FFF] = 3 // vidas infinitas
+				}
+				m.CPU.Pad1 = castlePad(f, *bot, session.bootFrames)
+			} else {
+				m.CPU.Pad1 = inputForFrame(f, *bot)
+			}
+			m.RunFrame()
+
+			if isBoot {
+				continue
+			}
+			if *castle {
+				globalFrame = session.level*10000 + (f - session.bootFrames)
 			}
 
-			// Capturar tiles visibles del fondo
-			if isPaletteValid(bgCram0) || isPaletteValid(bgCram1) {
-				nameBase := int(v.Reg[2]&0x0E) << 10
-				for row := 0; row < 28; row++ {
-					for col := 0; col < 32; col++ {
-						off := (nameBase + row*64 + col*2) & 0x3FFF
-						entry := uint16(v.VRAM[(off+1)&0x3FFF])<<8 | uint16(v.VRAM[off])
-						tile := int(entry & 0x1FF)
-						pal := entry&0x800 != 0
-						pat := (tile * 32) & 0x3FFF
-						tileData := v.VRAM[pat : pat+32]
+			// A completed level advances g_level; stop this session so the
+			// next one starts cleanly instead of capturing the next zone twice.
+			if *sonic && f > 750 && int(m.CPU.RAM[(sonicLevelRAM-0xC000)&0x1FFF]) != session.level {
+				fmt.Printf("🏁 %s completado en el frame %d.\n", session.name, f)
+				break
+			}
 
-						cram := bgCram0
-						if pal {
-							cram = bgCram1
-						}
-						if isPaletteValid(cram) {
-							if index, _ := addTile(tileData, cram, false); index >= 0 {
-								tileMap[row][col] = index
+			if f%2 == 0 {
+				v := m.VDP
+				bgCram0 := v.CRAM[0:16]
+				bgCram1 := v.CRAM[16:32]
+				sprCram := v.CRAM[16:32]
+				tileMap := make([][]int, 28)
+				for row := range tileMap {
+					tileMap[row] = make([]int, 32)
+					for col := range tileMap[row] {
+						tileMap[row][col] = -1
+					}
+				}
+
+				// Capturar tiles visibles del fondo
+				if isPaletteValid(bgCram0) || isPaletteValid(bgCram1) {
+					nameBase := int(v.Reg[2]&0x0E) << 10
+					for row := 0; row < 28; row++ {
+						for col := 0; col < 32; col++ {
+							off := (nameBase + row*64 + col*2) & 0x3FFF
+							entry := uint16(v.VRAM[(off+1)&0x3FFF])<<8 | uint16(v.VRAM[off])
+							tile := int(entry & 0x1FF)
+							pal := entry&0x800 != 0
+							pat := (tile * 32) & 0x3FFF
+							tileData := v.VRAM[pat : pat+32]
+
+							cram := bgCram0
+							if pal {
+								cram = bgCram1
+							}
+							if isPaletteValid(cram) {
+								if index, _ := addTile(tileData, cram, false); index >= 0 {
+									tileMap[row][col] = index
+								}
 							}
 						}
 					}
 				}
-			}
 
-			// Capturar sprites visibles en pantalla
-			if isPaletteValid(sprCram) {
-				satBase := int(v.Reg[5]&0x7E) << 7
-				patBase := int(v.Reg[6]&0x04) << 11
-				tall := v.Reg[1]&0x02 != 0
-				var visible []visibleSprite
+				// Capturar sprites visibles en pantalla
+				if isPaletteValid(sprCram) {
+					satBase := int(v.Reg[5]&0x7E) << 7
+					patBase := int(v.Reg[6]&0x04) << 11
+					tall := v.Reg[1]&0x02 != 0
+					var visible []visibleSprite
 
-				for i := 0; i < 64; i++ {
-					rawY := int(v.VRAM[(satBase+i)&0x3FFF])
-					if rawY == 0 {
-						continue // La SAT vacía inicializada a cero no describe un sprite activo.
-					}
-					y := rawY
-					if y == 0xD0 {
-						break
-					}
-					x := int(v.VRAM[(satBase+128+i*2)&0x3FFF])
-					y = (y + 1) & 0xFF
-					if y >= vdp.ScreenH || (tall && y+16 > vdp.ScreenH) {
-						continue
-					}
-					tile := int(v.VRAM[(satBase+128+i*2+1)&0x3FFF])
-					parts := 1
-					if tall {
-						parts = 2
-						tile &^= 1
-					}
-					sprite := visibleSprite{x: x, y: y, width: 8, height: 8}
-					if tall {
-						sprite.height = 16
-					}
-					for p := 0; p < parts; p++ {
-						pat := (patBase + (tile+p)*32) & 0x3FFF
-						tileData := v.VRAM[pat : pat+32]
-						index, _ := addTile(tileData, sprCram, true)
-						if index < 0 {
+					for i := 0; i < 64; i++ {
+						rawY := int(v.VRAM[(satBase+i)&0x3FFF])
+						if rawY == 0 {
+							continue // La SAT vacía inicializada a cero no describe un sprite activo.
+						}
+						y := rawY
+						if y == 0xD0 {
+							break
+						}
+						x := int(v.VRAM[(satBase+128+i*2)&0x3FFF])
+						y = (y + 1) & 0xFF
+						if y >= vdp.ScreenH || (tall && y+16 > vdp.ScreenH) {
 							continue
 						}
-						sprite.parts = append(sprite.parts, machine.TileObjectPlacement{Index: index, Y: p * 8})
+						tile := int(v.VRAM[(satBase+128+i*2+1)&0x3FFF])
+						parts := 1
+						if tall {
+							parts = 2
+							tile &^= 1
+						}
+						sprite := visibleSprite{x: x, y: y, width: 8, height: 8}
+						if tall {
+							sprite.height = 16
+						}
+						for p := 0; p < parts; p++ {
+							pat := (patBase + (tile+p)*32) & 0x3FFF
+							tileData := v.VRAM[pat : pat+32]
+							index, _ := addTile(tileData, sprCram, true)
+							if index < 0 {
+								continue
+							}
+							sprite.parts = append(sprite.parts, machine.TileObjectPlacement{Index: index, Y: p * 8})
+						}
+						if len(sprite.parts) > 0 {
+							visible = append(visible, sprite)
+						}
 					}
-					if len(sprite.parts) > 0 {
-						visible = append(visible, sprite)
-					}
+					makeSpriteObjects(visible, globalFrame, manifest, uniqueTiles, objects)
 				}
-				makeSpriteObjects(visible, f, manifest, uniqueTiles, objects)
-			}
 
-			if *bgGroup >= 2 && f%30 == 0 {
-				makeBackgroundObjects(tileMap, f, manifest, uniqueTiles, objects, *bgGroup, *bgProtect)
-			}
+				if *bgGroup >= 2 && f%30 == 0 {
+					makeBackgroundObjects(tileMap, globalFrame, manifest, uniqueTiles, objects, *bgGroup, *bgProtect)
+				}
 
-			if !staticAlexKidd && f%120 == 0 {
-				imageName := fmt.Sprintf("frame_%05d.png", f)
-				scenes = append(scenes, machine.TileSceneManifest{
-					Frame: f, Image: filepath.ToSlash(filepath.Join("scenes", imageName)),
-					ScrollX: int(v.Reg[8]), ScrollY: int(v.Reg[9]), TileMap: tileMap,
-				})
-				sceneImage := image.NewRGBA(image.Rect(0, 0, vdp.ScreenW, vdp.ScreenH))
-				copy(sceneImage.Pix, v.Frame[:])
-				if file, err := os.Create(filepath.Join(sceneDir, imageName)); err == nil {
-					_ = png.Encode(file, sceneImage)
-					_ = file.Close()
+				if !staticAlexKidd && f%120 == 0 {
+					imageName := fmt.Sprintf("frame_%05d.png", globalFrame)
+					scene := machine.TileSceneManifest{
+						Frame: globalFrame, Image: filepath.ToSlash(filepath.Join("scenes", imageName)),
+						ScrollX: int(v.Reg[8]), ScrollY: int(v.Reg[9]), TileMap: tileMap,
+					}
+					if *sonic || *castle {
+						scene.Level = level
+						scene.LevelName = session.name
+					}
+					scenes = append(scenes, scene)
+					sceneImage := image.NewRGBA(image.Rect(0, 0, vdp.ScreenW, vdp.ScreenH))
+					copy(sceneImage.Pix, v.Frame[:])
+					if file, err := os.Create(filepath.Join(sceneDir, imageName)); err == nil {
+						_ = png.Encode(file, sceneImage)
+						_ = file.Close()
+					}
 				}
 			}
 		}
