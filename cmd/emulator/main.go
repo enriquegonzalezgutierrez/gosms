@@ -691,7 +691,7 @@ func (g *game) Update() error {
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyF1) || inpututil.IsKeyJustPressed(ebiten.KeyV) {
-		g.videoFilter = (g.videoFilter + 1) % 6
+		g.videoFilter = (g.videoFilter + 1) % VideoFilter(len(videoFilterNames))
 		g.showOSD(fmt.Sprintf("VÍDEO: %s", videoFilterNames[g.videoFilter]))
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF2) || inpututil.IsKeyJustPressed(ebiten.KeyB) {
