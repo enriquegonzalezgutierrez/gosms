@@ -72,6 +72,12 @@ type Options struct {
 	SkySun     [2]float32
 	SkyGlow    float32
 
+	// Parallax sustituye el cielo por nubes y colinas procedurales. ScrollX y
+	// ScrollY llegan normalizados (0..1) desde el VDP.
+	Parallax bool
+	ScrollX  float32
+	ScrollY  float32
+
 	// Iluminacion de relieve (solo tiene sentido con arte HD).
 	Relief          float32
 	ReliefStep      float32
@@ -100,7 +106,7 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		HD:         hd,
 		SkyTop:     [3]float32{0.10, 0.24, 0.42},
 		SkyHorizon: [3]float32{0.38, 0.58, 0.72},
-		SkySun:     [2]float32{0.24, 0.18},
+		SkySun:     [2]float32{0.74, 0.20},
 		SkyGlow:    0.16,
 		Saturation: 1.0,
 		Contrast:   1.0,
@@ -474,6 +480,8 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 		"HorizonColor":   []float32{opts.SkyHorizon[0], opts.SkyHorizon[1], opts.SkyHorizon[2]},
 		"Sun":            []float32{opts.SkySun[0], opts.SkySun[1]},
 		"Glow":           opts.SkyGlow,
+		"Parallax":       boolValue(opts.Parallax),
+		"Scroll":         []float32{opts.ScrollX, opts.ScrollY},
 	}
 	p.work2.DrawRectShader(w, h, p.composite, cop)
 
@@ -497,6 +505,13 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 	out.Filter = ebiten.FilterNearest
 	dst.DrawImage(p.work2, out)
 	return nil
+}
+
+func boolValue(v bool) float32 {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func skyValue(enabled bool) float32 {

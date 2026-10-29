@@ -16,6 +16,8 @@ var TopColor vec3
 var HorizonColor vec3
 var Sun vec2
 var Glow float
+var Parallax float
+var Scroll vec2
 
 // aces es la curva filmica de Narkowicz: comprime las luces altas sin
 // recortarlas en plano y mantiene los negros profundos.
@@ -32,6 +34,110 @@ func aces(x vec3) vec3 {
 // evita las bandas de color en degradados de 8 bits.
 func hash(p vec2) float {
 	return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453)
+}
+
+func hash2(p vec2) float {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453)
+}
+
+func noise2(p vec2) float {
+	i := floor(p)
+	f := fract(p)
+	u := f*f*(3.0-2.0*f)
+	a := hash2(i)
+	b := hash2(i+vec2(1.0, 0.0))
+	c := hash2(i+vec2(0.0, 1.0))
+	d := hash2(i+vec2(1.0, 1.0))
+	return mix(mix(a, b, u.x), mix(c, d, u.x), u.y)
+}
+
+func fbm(p vec2) float {
+	v := 0.0
+	a := 0.5
+	q := p
+	for i := 0; i < 4; i++ {
+		v += a * noise2(q)
+		q = q*2.03 + vec2(17.3, 9.1)
+		a *= 0.5
+	}
+	return v
+}
+
+func cloudLayer(p vec2, scroll vec2, scale vec2, speed float, seed float) float {
+	q := p*scale + vec2(scroll.x*speed, scroll.y*speed*0.12) + vec2(seed, seed*1.7)
+	q += vec2(fbm(q*0.58+vec2(seed, 1.7)), fbm(q*0.58+vec2(3.1, seed)))*0.40
+	body := smoothstep(0.50, 0.72, fbm(q))
+	edge := smoothstep(0.30, 0.58, fbm(q*4.2+vec2(seed*2.0, 5.0)))
+	return body*edge
+}
+
+func ridge(x float, base float, amp float, freq float, phase float) float {
+	v := base + amp*sin(x*freq+phase) + amp*0.45*sin(x*freq*2.7+phase*1.3) + amp*0.22*sin(x*freq*5.3+phase*0.7) + amp*0.10*(noise2(vec2(x*freq*8.0, phase))-0.5)
+	return v
+}
+
+func parallaxSky(p vec2, scroll vec2, sun vec2, top vec3, horizon vec3) vec3 {
+	// El fondo lejano se mueve en sentido contrario al avance del mundo.
+	scroll = vec2(-scroll.x, -scroll.y)
+	// Cielo: gradiente atmosferico con un horizonte mas calido.
+	col := mix(top, horizon, pow(clamp(p.y, 0.0, 1.0), 1.16))
+
+	// Sol: disco, halo y un anillo de lente muy sutil.
+	d := distance(p, sun)
+	glow := exp(-d*d*22.0)
+	col = mix(col, vec3(0.98, 0.84, 0.62), glow*0.42)
+	col = mix(col, vec3(1.0, 0.97, 0.86), smoothstep(0.046, 0.036, d))
+	ring := exp(-abs(d-0.19)*38.0)
+	col = mix(col, vec3(1.0, 0.86, 0.62), ring*0.055)
+
+	// Tres capas de nubes a distintas escalas y velocidades. La capa cercana
+	// tiene mas detalle y recibe la luz calida del sol.
+	c1 := cloudLayer(p, scroll, vec2(4.2, 2.6), 0.18, 1.3)
+	c2 := cloudLayer(p, scroll, vec2(7.0, 4.0), 0.30, 5.7)
+	c3 := cloudLayer(p, scroll, vec2(11.0, 6.0), 0.46, 9.1)
+	cloud := clamp(c1*0.58 + c2*0.52 + c3*0.34, 0.0, 1.0)
+	cloud *= smoothstep(0.72, 0.46, p.y)
+	sunWarm := clamp(exp(-d*d*7.0), 0.0, 1.0)
+	cloudShade := mix(vec3(0.70, 0.77, 0.88), vec3(1.0, 0.98, 0.92), clamp(1.0-p.y*1.25, 0.0, 1.0))
+	cloudCol := mix(cloudShade, vec3(1.0, 0.95, 0.84), sunWarm*0.65)
+	col = mix(col, cloudCol, cloud*0.58)
+
+	ang := atan2(p.y-sun.y, p.x-sun.x)
+	rays := pow(max(0.0, cos(ang*17.0+1.2)), 30.0) * glow * 0.035
+	col = col + vec3(1.0, 0.88, 0.68)*rays
+
+	// Cuatro crestas con niebla entre capas: lejos azul, cerca verde oscuro.
+	x1 := p.x + scroll.x*0.22
+	x2 := p.x + scroll.x*0.36
+	x3 := p.x + scroll.x*0.54
+	x4 := p.x + scroll.x*0.72
+	r1 := ridge(x1, 0.585, 0.052, 8.0, 0.4)
+	r2 := ridge(x2, 0.655, 0.047, 11.0, 1.8)
+	r3 := ridge(x3, 0.735, 0.042, 15.0, 0.9)
+	r4 := ridge(x4, 0.815, 0.036, 21.0, 2.5)
+
+	farCol := mix(horizon, vec3(0.26, 0.40, 0.56), 0.56)
+	midCol := mix(horizon, vec3(0.16, 0.32, 0.36), 0.60)
+	nearCol := mix(horizon, vec3(0.10, 0.24, 0.25), 0.66)
+	baseCol := mix(horizon, vec3(0.06, 0.16, 0.17), 0.74)
+	farTex := 0.90 + 0.10*noise2(vec2(p.x*46.0+scroll.x*0.15, p.y*26.0))
+	midTex := 0.88 + 0.12*noise2(vec2(p.x*58.0+scroll.x*0.24, p.y*32.0))
+	nearTex := 0.86 + 0.14*noise2(vec2(p.x*72.0+scroll.x*0.36, p.y*40.0))
+	if p.y > r1 { col = mix(col, farCol*farTex, 0.46*smoothstep(r1, r1+0.055, p.y)) }
+	if p.y > r2 { col = mix(col, midCol*midTex, 0.58*smoothstep(r2, r2+0.05, p.y)) }
+	if p.y > r3 { col = mix(col, nearCol*nearTex, 0.70*smoothstep(r3, r3+0.045, p.y)) }
+	if p.y > r4 { col = mix(col, baseCol*nearTex, 0.82*smoothstep(r4, r4+0.04, p.y)) }
+
+	// Las nubes proyectan una sombra muy leve sobre las crestas.
+	col = col * (1.0 - cloud*smoothstep(0.52, 0.82, p.y)*0.10)
+
+	// Bruma de horizonte y calidez baja: separa planos y evita el look de carton.
+	haze := smoothstep(0.48, 0.72, p.y) * (1.0 - smoothstep(0.74, 0.90, p.y))
+	col = mix(col, mix(horizon, vec3(0.93, 0.82, 0.66), 0.38), haze*0.20)
+	// Niebla acumulada en la base de las montanas para dar profundidad aerea.
+	fog := smoothstep(0.66, 0.96, p.y) * 0.22
+	col = mix(col, horizon, fog)
+	return col
 }
 
 func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
@@ -56,7 +162,12 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 		g := mix(TopColor, HorizonColor, pow(t, 1.25))
 		p := src0Pos / size
 		glow := exp(-distance(p, Sun)*distance(p, Sun)*22.0) * Glow
-		rgb = mix(g, vec3(1.0, 0.93, 0.80), glow)
+		if Parallax > 0.5 {
+			rgb = parallaxSky(p, Scroll, Sun, TopColor, HorizonColor)
+			rgb = mix(rgb, vec3(1.0, 0.93, 0.80), glow*0.35)
+		} else {
+			rgb = mix(g, vec3(1.0, 0.93, 0.80), glow)
+		}
 	}
 
 	rgb = rgb * Exposure

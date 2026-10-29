@@ -43,7 +43,7 @@ WHITE   := \033[1;37m
 RESET   := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test bench perf bench-ui bench-ui-matrix verify-hd select-hd release release-complete audit android-docker clean-assets
+.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test bench perf bench-ui bench-ui-matrix verify-hd select-hd check-music release release-complete audit android-docker clean-assets
 
 help:
 	@printf "\n$(BLUE)  ╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
@@ -54,6 +54,7 @@ help:
 	@printf "  $(GREEN)make bench$(RESET)      Microbenchmarks de CPU/VDP/PSG/máquina/vídeo (sin ROM externa)\n"
 	@printf "  $(GREEN)make verify-hd$(RESET)  Comprueba contaminación de tiles en un pack HD: make verify-hd ROM=...\n"
 	@printf "  $(GREEN)make select-hd$(RESET)  Activa un estilo de pack: make select-hd ROM=... HD_STYLE=modern-plus|modern-strong\n"
+	@printf "  $(GREEN)make check-music$(RESET) Valida y convierte music/theme.ogg a Vorbis si hace falta\n"
 	@printf "  $(GREEN)make perf$(RESET)       FPS de emulación headless: make perf ROM=... [PERF_FRAMES=3600]\n"
 	@printf "  $(GREEN)make bench-ui$(RESET)   FPS real HD+Remaster 2026: make bench-ui ROM=... [BENCH_WARMUP=3600]\n"
 	@printf "  $(GREEN)make bench-ui-matrix$(RESET) Matrix HD off/on × pixel/Remaster 2026\n"
@@ -143,12 +144,48 @@ else
 	@exit 2
 endif
 
+check-music:
+ifdef ROM
+	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
+	MUSIC="assets/$$ROM_BASE/music/theme.ogg"; \
+	if [ ! -f "$$MUSIC" ]; then \
+		printf "$(YELLOW)   Sin theme.ogg para %s (opcional)$(RESET)\n" "$$ROM_BASE"; \
+		exit 0; \
+	fi; \
+	if ! command -v ffprobe >/dev/null 2>&1; then \
+		printf "$(YELLOW)   theme.ogg presente; instala ffmpeg/ffprobe para validarlo$(RESET)\n"; \
+		exit 0; \
+	fi; \
+	CODEC=$$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$$MUSIC"); \
+	if [ "$$CODEC" = "vorbis" ]; then \
+		printf "$(GREEN)   theme.ogg OK (Vorbis)$(RESET)\n"; \
+	else \
+		printf "$(BLUE)   theme.ogg es %s; convirtiendo a Vorbis...$(RESET)\n" "$$CODEC"; \
+		if ! command -v ffmpeg >/dev/null 2>&1; then \
+			printf "$(YELLOW)   Instala ffmpeg para convertir theme.ogg$(RESET)\n"; exit 1; \
+		fi; \
+		cp "$$MUSIC" "$$MUSIC.original.$$CODEC"; \
+		ffmpeg -y -hide_banner -loglevel error -i "$$MUSIC" -c:a libvorbis -q:a 6 "$$MUSIC.tmp.ogg" || { rm -f "$$MUSIC.tmp.ogg"; exit 1; }; \
+		mv "$$MUSIC.tmp.ogg" "$$MUSIC"; \
+		printf "$(GREEN)   theme.ogg convertido a Vorbis (original: %s.original.%s)$(RESET)\n" "$$MUSIC" "$$CODEC"; \
+	fi
+else
+	@printf "Uso: make check-music ROM='roms/juego.sms'\n"
+	@exit 2
+endif
+
 clean-assets:
-	@printf "$(YELLOW)==> Eliminando la carpeta assets/ completa...$(RESET)\n"
-	@rm -rf assets
+	@printf "$(YELLOW)==> Eliminando assets generados (se conserva music/)...$(RESET)\n"
+	@if [ -d assets ]; then \
+		find assets -mindepth 1 -maxdepth 1 -type d | while read dir; do \
+			rm -rf "$$dir/original" "$$dir/hd" "$$dir/remaster_workspace" "$$dir/screenshots"; \
+			for extra in "$$dir"/hd-*; do [ -e "$$extra" ] && rm -rf "$$extra"; done; \
+		done; \
+	fi
 
 dump objects: clean-assets
 ifdef ROM
+	@$(MAKE) --no-print-directory check-music ROM="$(ROM)"
 	@printf "$(BLUE)==> Extrayendo tiles, objetos y mapas de escena...$(RESET)\n"
 	@go run ./cmd/dump_assets -frames "$(FRAMES)" -bot "$(BOT)" -bg-group "$(BG_GROUP)" -bg-protect "$(BG_PROTECT)" $(if $(SONIC_ALL),-sonic,) $(if $(CASTLE_ALL),-castle,) "$(ROM)"
 else
@@ -274,6 +311,12 @@ release-complete:
 			game=$$(basename "$$(dirname "$$hd")"); \
 			mkdir -p "$$dir/assets/$$game"; \
 			cp -r "$$hd" "$$dir/assets/$$game/"; \
+		done; \
+		for music in assets/*/music; do \
+			[ -d "$$music" ] || continue; \
+			game=$$(basename "$$(dirname "$$music")"); \
+			mkdir -p "$$dir/assets/$$game"; \
+			cp -r "$$music" "$$dir/assets/$$game/"; \
 		done; \
 		printf "GoSMS completo para %s\n\nIncluye todas las ROMs de roms/ y los packs HD de assets/<juego>/hd.\nUso local: este ZIP contiene material con copyright y no debe publicarse.\n" "$$os" > "$$dir/LEEME.txt"; \
 		(cd dist && rm -f "gosms-$$os-complete.zip" && zip -qr "gosms-$$os-complete.zip" "gosms-$$os-complete"); \

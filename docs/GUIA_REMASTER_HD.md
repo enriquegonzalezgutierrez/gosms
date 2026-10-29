@@ -79,7 +79,7 @@ bot. `FRAMES=6500` cubre el recorrido de cada nivel; para más zonas sube
 Kidd Rev 1 no hay decodificación estática del layout: todo sale de las escenas
 capturadas.
 
-> El primer paso borra la carpeta de assets de esa ROM. Como todo se regenera desde la ROM, no se pierde nada que no puedas volver a calcular. Los overrides manuales de `remaster_workspace/tiles/` sí se pierden: cópialos fuera antes de repetir `make remaster`.
+> El primer paso borra los assets generados de esa ROM (`original/`, `hd/`, `hd-*/`, `remaster_workspace/` y `screenshots/`), pero **conserva `music/`**. Como todo lo demás se regenera desde la ROM, no se pierde nada que no puedas volver a calcular. Los overrides manuales de `remaster_workspace/tiles/` sí se pierden: cópialos fuera antes de repetir `make remaster`.
 
 ## Escala
 
@@ -135,8 +135,8 @@ go run ./cmd/preview -frames 900 -filter modern -hd -nosky -out plano.png "roms/
 ```
 
 El cielo se aplica solo con pack HD y los filtros **REMASTER 2026**,
-**MODERN+**, **MODERN+ STRONG** o **CRT**; **SUAVIZADO** deja ver el albedo
-plano.
+**MODERN+**, **MODERN+ STRONG**, **MODERN+ PARALLAX** o **CRT**; **SUAVIZADO**
+deja ver el albedo plano.
 
 ## Ajustes
 
@@ -170,7 +170,7 @@ make cinematic ROM="roms/Alex Kidd in Miracle World (UE) (V1.1) [!].sms"
 make pack ROM="..."
 ```
 
-Procesa los 483 composites y los 9156 tiles; tarda unos 10 minutos en un equipo de escritorio. Los
+Procesa los composites de la ROM (por ejemplo, 622 en Alex Kidd) y los tiles; tarda unos 10 minutos en un equipo de escritorio. Los
 colores que no están en la paleta base reciben un grado fílmico suave (más
 saturación, sombras frías y luces cálidas).
 
@@ -185,6 +185,32 @@ saturación, sombras frías y luces cálidas).
 
 La paleta está en `tools/grades.py`; cambiar un color allí y volver a lanzar el
 comando es todo lo necesario para probar otra dirección.
+
+## Estilos de pack
+
+`PACK_STYLE` elige cuánto volumen y contraste se hornea en los PNG:
+
+| Estilo | Acabado |
+| --- | --- |
+| `cinematic` | Albedo plano, fiel al original. Es el valor por defecto. |
+| `modern-plus` | Sprites y objetos aislados con AO, materiales, rim light y grading moderado. |
+| `modern-strong` | Más contraste, relieve y saturación. |
+
+```bash
+make cinematic ROM="..." PACK_STYLE=modern-plus
+make pack ROM="..."
+make select-hd ROM="..." HD_STYLE=modern-plus
+```
+
+Los **fondos se mantienen planos** en los estilos modernos: iluminar cada bloque
+por separado produce costuras visibles en el mosaico. El volumen se aplica a
+sprites y objetos aislados, y los filtros **MODERN+ / MODERN+ STRONG** añaden el
+grading global desde el emulador.
+
+La paleta del pack siempre usa el grado `cinematic`, incluso en los estilos
+modernos. Si se escribe el nombre del estilo en `grade.json`, el fondo del VDP
+queda sin graduar y aparecen rectángulos azules a través de los tiles
+transparentes.
 
 ## Carpetas
 
@@ -216,6 +242,9 @@ Si dos objetos comparten un tile con resultados distintos, el empaquetador conse
 
 - `BG_GROUP=8` es el valor por defecto. `BG_GROUP=0` desactiva los bloques.
 - `BG_PROTECT=2` protege las dos primeras filas de la name table (HUD).
+- El render HD guarda el scroll horizontal efectivo de cada línea: los juegos
+  que cambian el scroll a mitad de frame para fijar el HUD (como Castle of
+  Illusion) se dibujan correctamente.
 
 ## Comprobar el resultado
 
@@ -229,7 +258,10 @@ O dentro del juego:
 - **F12** o **H** abre la ayuda de controles (también el tutorial de primer arranque).
 - **F1** recorre los filtros de post-proceso. **REMASTER 2026** es el más
   completo (cielo y bloom); **MODERN+** y **MODERN+ STRONG** suben bloom,
-  saturación y contraste; **SUAVIZADO** es el más ligero.
+  saturación y contraste; **MODERN+ PARALLAX** añade nubes y montañas
+  procedurales con parallax; **SUAVIZADO** es el más ligero.
+- **F6** o **M** activa o desactiva la música de fondo opcional.
+- **F3 / F4** guardan y cargan partida rápida; **F5** hace una captura.
 - **P** o **Enter** pulsa PAUSE/START (en Alex Kidd abre el mapa e inventario).
 - Al conectar un mando USB/Bluetooth, el menú muestra el modelo y el juego avisa
   con un OSD al conectar o desconectar.
@@ -256,3 +288,18 @@ go run ./cmd/preview -frames 900 -pause 600 -filter modern -hd \
 - La cobertura del pack son las escenas que alcanza el bot de extracción; las
   zonas no visitadas siguen usando los gráficos originales hasta que las
   captures con `FRAMES`/level select.
+
+
+## Música de fondo opcional
+
+Puedes añadir un tema propio en `assets/<ROM>/music/theme.ogg` (Ogg **Vorbis**, no Opus). El emulador lo
+reproduce en bucle y silencia los canales de tono del PSG para no duplicar la
+música original; los efectos de ruido siguen sonando. **F6** o **M** lo activa
+o desactiva. Con `-music-mix` se mezclan ambos. Si el archivo es Opus u otro
+formato, el emulador lo convierte automáticamente a Vorbis con `ffmpeg` y
+cachea el resultado como `theme-vorbis.ogg`.
+
+`make objects` y `make remaster` conservan `music/`, validan el códec con
+`ffprobe` y convierten a Vorbis con `ffmpeg` si el archivo es Opus u otro
+formato. El borrado de assets solo elimina `original/`, `hd/`, `hd-*/`,
+`remaster_workspace/` y `screenshots/`.

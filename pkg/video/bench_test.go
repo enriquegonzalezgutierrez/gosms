@@ -10,12 +10,15 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-func benchmarkDraw(b *testing.B, preset Preset, hd bool, srcW, srcH, dstW, dstH int) {
+func benchmarkDraw(b *testing.B, preset Preset, hd bool, srcW, srcH, dstW, dstH int, mutate func(*Options)) {
 	src := ebiten.NewImage(srcW, srcH)
 	src.Fill(image.White)
 	dst := ebiten.NewImage(dstW, dstH)
 	p := New()
 	opts := DefaultOptions(preset, hd)
+	if mutate != nil {
+		mutate(&opts)
+	}
 	srcRect := image.Rect(0, 0, srcW, srcH)
 	dstRect := image.Rect(0, 0, dstW, dstH)
 	b.ResetTimer()
@@ -36,11 +39,13 @@ func BenchmarkDraw(b *testing.B) {
 		{"pixel", PresetPixelPerfect},
 		{"smooth", PresetSmooth},
 		{"modern", PresetModern},
+		{"modern+", PresetModernPlus},
+		{"modern-strong", PresetModernStrong},
 		{"crt", PresetCRT},
 		{"mono", PresetMonochrome},
 	} {
 		b.Run(preset.name, func(b *testing.B) {
-			benchmarkDraw(b, preset.val, false, 256, 192, 1920, 1440)
+			benchmarkDraw(b, preset.val, false, 256, 192, 1920, 1440, nil)
 		})
 	}
 }
@@ -52,10 +57,20 @@ func BenchmarkDrawHD(b *testing.B) {
 	}{
 		{"pixel", PresetPixelPerfect},
 		{"modern", PresetModern},
+		{"modern+", PresetModernPlus},
+		{"modern-strong", PresetModernStrong},
 		{"crt", PresetCRT},
 	} {
 		b.Run(preset.name, func(b *testing.B) {
-			benchmarkDraw(b, preset.val, true, 1024, 768, 1920, 1440)
+			benchmarkDraw(b, preset.val, true, 1024, 768, 1920, 1440, nil)
 		})
 	}
+}
+
+func BenchmarkDrawHDParallax(b *testing.B) {
+	benchmarkDraw(b, PresetModernPlus, true, 1024, 768, 1920, 1440, func(opts *Options) {
+		opts.Parallax = true
+		opts.ScrollX = 0.37
+		opts.ScrollY = 0.12
+	})
 }

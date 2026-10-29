@@ -77,6 +77,30 @@ referencia queda muy por encima de 60 FPS tanto a 768×576 como a 1080p.
 > No midas solo 120–180 frames: eso se queda en la intro. Usa al menos
 > `BENCH_WARMUP=3600` para que la medición caiga en gameplay real.
 
+### Nuevos efectos (Modern+, Strong y Parallax)
+
+Medido con **Castle of Illusion**, HD 4×, 600 frames de warmup y 600 medidos,
+escala 3 (768×576):
+
+| Filtro | FPS | ms/frame |
+|---|---:|---:|
+| Remaster 2026 | 116,4 | 8,590 |
+| Modern+ | 201,9 | 4,952 |
+| Modern+ Strong | 200,5 | 4,987 |
+| Modern+ Parallax | 208,0 | 4,809 |
+
+El parallax procedural solo se ejecuta sobre píxeles de cielo, por eso no penaliza
+el resto de la escena. Aun así, es el efecto más caro del shader: si se toca el
+FBM o las capas de nubes, vuelve a medirlo.
+
+Microbenchmarks de vídeo (Ebiten en el entorno de test, valores relativos):
+
+| Benchmark | ms/frame |
+|---|---:|
+| `BenchmarkDrawHD/modern+` | 0,0135 |
+| `BenchmarkDrawHD/modern-strong` | 0,0115 |
+| `BenchmarkDrawHDParallax` | 0,0116 |
+
 ## Comandos
 
 ```bash
@@ -93,6 +117,14 @@ make bench-ui ROM="roms/Castle of Illusion Starring Mickey Mouse (U) (V1.1) [!].
 # Matrix completa: HD off/on × Pixel/Remaster 2026
 make bench-ui-matrix ROM="roms/Sonic The Hedgehog (USA, Europe).sms" \
   PERF_FRAMES=1200 BENCH_WARMUP=3600 BENCH_SCALE=3
+
+# Filtros nuevos (0-8): 6 = Modern+, 7 = Modern+ Strong, 8 = Parallax
+make bench-ui ROM="roms/Castle of Illusion Starring Mickey Mouse (U) (V1.1) [!].sms" \
+  BENCH_FILTER=6 PERF_FRAMES=600 BENCH_WARMUP=600
+make bench-ui ROM="roms/Castle of Illusion Starring Mickey Mouse (U) (V1.1) [!].sms" \
+  BENCH_FILTER=7 PERF_FRAMES=600 BENCH_WARMUP=600
+make bench-ui ROM="roms/Castle of Illusion Starring Mickey Mouse (U) (V1.1) [!].sms" \
+  BENCH_FILTER=8 PERF_FRAMES=600 BENCH_WARMUP=600
 ```
 
 También se puede llamar directamente:
@@ -137,6 +169,8 @@ go run ./cmd/emulator -bench 1200 -bench-warmup 3600 \
 - **FPS HD + Remaster 2026**: mantener al menos **120 FPS** a 768×576 y
   **90 FPS** a 1440×1080 en la máquina de referencia. El objetivo real es no
   bajar de 60 FPS estables en 1080p.
+- **Modern+ / Strong / Parallax**: sin regresión superior al 5 % en los
+  benchmarks de vídeo; en la UI, mantener más de 60 FPS estables a 1080p.
 - **Cero allocs** en `BenchmarkStep`, `BenchmarkRunFrame` y `BenchmarkRenderFrame`.
   Si un refactor introduce allocs en el bucle caliente, se considera regresión.
 

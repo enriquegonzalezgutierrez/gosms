@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 
 	"flag"
@@ -17,6 +18,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -24,6 +26,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/hajimehoshi/ebiten/v2/audio/vorbis"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -54,6 +57,7 @@ const (
 	VideoFilterRemaster2026
 	VideoFilterModernPlus
 	VideoFilterModernStrong
+	VideoFilterModernParallax
 )
 
 var videoFilterNames = []string{
@@ -65,6 +69,7 @@ var videoFilterNames = []string{
 	"REMASTER 2026 (NÍTIDO + BLOOM)",
 	"MODERN+ (CINE DIGITAL)",
 	"MODERN+ STRONG (ALTO CONTRASTE)",
+	"MODERN+ PARALLAX (FONDO 2.5D)",
 }
 
 type AudioFilter int
@@ -417,28 +422,41 @@ const (
 )
 
 type game struct {
-	state      AppState
-	romFiles   []string
-	roms       []RomItem
-	loadingIdx int
-	loadingMsg string
-	loadChan   chan RomItem
-	loadDone   chan bool
-	selected   int
-	curTitle   string
-	curRomPath string
-	m          *machine.Machine
-	img        *ebiten.Image
-	fullscreen bool
-	crop       bool
-	hdMode     bool
-	dumper     *LiveDumper
-	audioBuf   *audioBuffer
-	dsp        AudioDSP
-	monoBuf    []byte
-	stereoBuf  []byte
-	samplesBuf []int16
-	frames     int
+	state       AppState
+	romFiles    []string
+	roms        []RomItem
+	loadingIdx  int
+	loadingMsg  string
+	loadChan    chan RomItem
+	loadDone    chan bool
+	selected    int
+	curTitle    string
+	curRomPath  string
+	m           *machine.Machine
+	img         *ebiten.Image
+	fullscreen  bool
+	crop        bool
+	hdMode      bool
+	dumper      *LiveDumper
+	audioBuf    *audioBuffer
+	audioCtx    *audio.Context
+	musicPlayer *audio.Player
+	musicFile   *os.File
+	musicStream *vorbis.Stream
+	musicPath   string
+	musicOn     bool
+	musicMix    bool
+
+	parallaxX     float64
+	parallaxY     float64
+	parallaxLastX int
+	parallaxLastY int
+	parallaxInit  bool
+	dsp           AudioDSP
+	monoBuf       []byte
+	stereoBuf     []byte
+	samplesBuf    []int16
+	frames        int
 
 	// Medición de rendimiento con -bench.
 	benchFrames  int
@@ -531,11 +549,199 @@ func (g *game) benchPad(frame int) byte {
 	return pad
 }
 
+func (g *game) stopMusic() {
+	if g.m != nil && g.m.CPU != nil {
+		g.m.CPU.PSG.SetToneMute(false)
+	}
+	if g.musicPlayer != nil {
+		_ = g.musicPlayer.Close()
+		g.musicPlayer = nil
+	}
+	if g.musicFile != nil {
+		_ = g.musicFile.Close()
+		g.musicFile = nil
+	}
+	g.musicStream = nil
+	g.musicPath = ""
+	g.musicOn = false
+}
+
+// loadMusic busca un tema propio del juego en assets/<ROM>/music/theme.ogg.
+// Es opcional: si no existe, el emulador sigue usando solo el PSG.
+// convertMusicToVorbis convierte Ogg Opus/otros formatos a Vorbis usando
+// ffmpeg. Se cachea al lado del original para no repetir la conversion.
+func convertMusicToVorbis(path string) (string, error) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return "", fmt.Errorf("ffmpeg no esta instalado")
+	}
+	out := filepath.Join(filepath.Dir(path), "theme-vorbis.ogg")
+	if info, err := os.Stat(out); err == nil {
+		if src, err := os.Stat(path); err == nil && info.ModTime().After(src.ModTime()) {
+			return out, nil
+		}
+	}
+	tmp := out + ".tmp.ogg"
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", path, "-c:a", "libvorbis", "-q:a", "6", tmp)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		_ = os.Remove(tmp)
+		msg := strings.TrimSpace(string(output))
+		if len(msg) > 180 {
+			msg = msg[:180]
+		}
+		return "", fmt.Errorf("ffmpeg: %v %s", err, msg)
+	}
+	if err := os.Rename(tmp, out); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return out, nil
+}
+
+func (g *game) openMusic(path string) (*audio.Player, *os.File, *vorbis.Stream, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	stream, err := vorbis.Decode(g.audioCtx, file)
+	if err == nil {
+		player, perr := audio.NewPlayer(g.audioCtx, stream)
+		if perr != nil {
+			_ = file.Close()
+			return nil, nil, nil, perr
+		}
+		return player, file, stream, nil
+	}
+	_ = file.Close()
+	converted, cerr := convertMusicToVorbis(path)
+	if cerr != nil {
+		return nil, nil, nil, fmt.Errorf("%v; no se pudo convertir: %v", err, cerr)
+	}
+	file, err = os.Open(converted)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	stream, err = vorbis.Decode(g.audioCtx, file)
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, nil, err
+	}
+	player, err := audio.NewPlayer(g.audioCtx, stream)
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, nil, err
+	}
+	log.Printf("Música: convertida a Vorbis -> %s", converted)
+	return player, file, stream, nil
+}
+
+func (g *game) loadMusic(romPath string) {
+	if g.audioCtx == nil {
+		return
+	}
+	base := strings.TrimSuffix(filepath.Base(romPath), filepath.Ext(romPath))
+	candidates := []string{
+		filepath.Join("assets", base, "music", "theme.ogg"),
+		filepath.Join(filepath.Dir(romPath), "music", "theme.ogg"),
+	}
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		player, file, stream, err := g.openMusic(path)
+		if err != nil {
+			log.Printf("Música: no se pudo cargar %s: %v", path, err)
+			g.showOSD("MÚSICA: FORMATO NO SOPORTADO")
+			continue
+		}
+		player.SetVolume(0.55)
+		player.Play()
+		g.musicPlayer = player
+		g.musicFile = file
+		g.musicStream = stream
+		g.musicPath = path
+		g.musicOn = true
+		g.m.CPU.PSG.SetToneMute(!g.musicMix)
+		log.Printf("Música: cargada %s", path)
+		g.showOSD("MÚSICA: THEME.OGG")
+		return
+	}
+}
+
+// updateParallax acumula el scroll del VDP sin saltos cuando el registro de
+// 8 bits da la vuelta (255 -> 0). Sin esto el fondo procedural pega un salto
+// cada 256 píxeles de avance.
+func (g *game) updateParallax() {
+	if g.m == nil || g.m.VDP == nil {
+		return
+	}
+	x := int(g.m.VDP.Reg[8])
+	y := int(g.m.VDP.Reg[9])
+	if g.m.VDP.LineScrollValid {
+		x = int(g.m.VDP.LineScrollX[0])
+	}
+	if !g.parallaxInit {
+		g.parallaxLastX, g.parallaxLastY = x, y
+		g.parallaxInit = true
+		return
+	}
+	dx := x - g.parallaxLastX
+	if dx > 128 {
+		dx -= 256
+	} else if dx < -128 {
+		dx += 256
+	}
+	dy := y - g.parallaxLastY
+	if dy > 112 {
+		dy -= 224
+	} else if dy < -112 {
+		dy += 224
+	}
+	g.parallaxX += float64(dx) / float64(vdp.ScreenW)
+	g.parallaxY += float64(dy) / 224.0
+	g.parallaxLastX, g.parallaxLastY = x, y
+}
+
+func (g *game) loopMusic() {
+	if g.musicPlayer == nil || !g.musicOn {
+		return
+	}
+	if !g.musicPlayer.IsPlaying() {
+		if err := g.musicPlayer.SetPosition(0); err == nil {
+			g.musicPlayer.Play()
+		}
+	}
+}
+
+func (g *game) toggleMusic() {
+	if g.musicPlayer == nil {
+		g.showOSD("SIN MÚSICA: añade assets/<ROM>/music/theme.ogg")
+		return
+	}
+	g.musicOn = !g.musicOn
+	if g.musicOn {
+		g.musicPlayer.Play()
+		if g.m != nil && g.m.CPU != nil {
+			g.m.CPU.PSG.SetToneMute(!g.musicMix)
+		}
+		g.showOSD("MÚSICA: ON")
+	} else {
+		g.musicPlayer.Pause()
+		if g.m != nil && g.m.CPU != nil {
+			g.m.CPU.PSG.SetToneMute(false)
+		}
+		g.showOSD("MÚSICA: OFF")
+	}
+}
+
 func (g *game) loadGame(path string) error {
 	rom, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
+	g.stopMusic()
 	g.curRomPath = path
 	g.m = machine.New(rom)
 	machine.InitHD(path)
@@ -547,6 +753,10 @@ func (g *game) loadGame(path string) error {
 	// Cargar archivo .sav de batería de guardado si existe
 	sramPath := strings.TrimSuffix(path, filepath.Ext(path)) + ".sav"
 	g.m.CPU.LoadSRAM(sramPath)
+	g.loadMusic(path)
+	g.parallaxInit = false
+	g.parallaxX = 0
+	g.parallaxY = 0
 	return nil
 }
 
@@ -647,8 +857,8 @@ func (g *game) Update() error {
 	}
 
 	// Teclas rápidas globales para cambiar filtros
-	// F8: Pantallazo limpio para IA
-	if inpututil.IsKeyJustPressed(ebiten.KeyF7) {
+	// F5: Pantallazo limpio para IA
+	if inpututil.IsKeyJustPressed(ebiten.KeyF5) {
 		if g.dumper != nil && g.img != nil {
 			if g.m != nil && g.m.VDP != nil {
 				g.img.WritePixels(g.m.VDP.Frame[:])
@@ -740,8 +950,8 @@ func (g *game) Update() error {
 			isGamepadButtonJustPressed(ebiten.StandardGamepadButtonCenterLeft) {
 			return ebiten.Termination
 		}
-		// Tecla F3 para cambiar/recargar carpeta de roms
-		if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
+		// Tecla O para cambiar/recargar carpeta de roms
+		if inpututil.IsKeyJustPressed(ebiten.KeyO) {
 			cfg := loadConfig()
 			// Alternar o buscar en directorio actual por defecto
 			if cfg.RomsDir == "roms" {
@@ -814,6 +1024,7 @@ func (g *game) Update() error {
 				g.m.CPU.SaveSRAM()
 			}
 			g.state = StateMenu
+			g.stopMusic()
 			g.m = nil
 			g.audioBuf.Reset()
 			ebiten.SetWindowTitle("gosms - Sega Master System Launcher")
@@ -832,23 +1043,27 @@ func (g *game) Update() error {
 			g.showOSD("PAUSE / START (NMI)")
 		}
 
-		// Save State: Guardar partida rápida con F5
-		if inpututil.IsKeyJustPressed(ebiten.KeyF5) {
+		if inpututil.IsKeyJustPressed(ebiten.KeyM) || inpututil.IsKeyJustPressed(ebiten.KeyF6) {
+			g.toggleMusic()
+		}
+
+		// Save State: Guardar partida rápida con F3
+		if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
 			statePath := strings.TrimSuffix(g.curRomPath, filepath.Ext(g.curRomPath)) + ".state"
 			if err := g.m.SaveState(statePath); err != nil {
 				g.showOSD("ERROR GUARDANDO ESTADO")
 			} else {
-				g.showOSD("PARTIDA GUARDADA (F5)")
+				g.showOSD("PARTIDA GUARDADA (F3)")
 			}
 		}
 
-		// Save State: Cargar partida rápida con F8
-		if inpututil.IsKeyJustPressed(ebiten.KeyF8) {
+		// Save State: Cargar partida rápida con F4
+		if inpututil.IsKeyJustPressed(ebiten.KeyF4) {
 			statePath := strings.TrimSuffix(g.curRomPath, filepath.Ext(g.curRomPath)) + ".state"
 			if err := g.m.LoadState(statePath); err != nil {
 				g.showOSD("NO HAY PARTIDA GUARDADA")
 			} else {
-				g.showOSD("PARTIDA CARGADA (F8)")
+				g.showOSD("PARTIDA CARGADA (F4)")
 			}
 		}
 
@@ -857,6 +1072,8 @@ func (g *game) Update() error {
 			g.m.CPU.SaveSRAM()
 		}
 
+		g.loopMusic()
+		g.updateParallax()
 		g.m.CPU.Pad1 = readPad(pad1Keys, 0)
 		g.m.CPU.Pad2 = readPad(pad2Keys, 1)
 		if g.benchFrames > 0 {
@@ -1038,7 +1255,7 @@ func (g *game) drawMenu(screen *ebiten.Image) {
 	hint1 := "[ ENTER / A ] Jugar    [ D-PAD / STICK ] Elegir    [ F12 ] Controles    [ F11 ] Pantalla"
 	ebitenutil.DebugPrintAt(screen, hint1, sw/2-len(hint1)*3, sh-50)
 
-	hint2 := "[ F3 ] Carpeta ROMs    [ F1 ] Vídeo    [ F2 ] Audio    [ ESC ] Salir"
+	hint2 := "[ O ] Carpeta ROMs    [ F1 ] Vídeo    [ F2 ] Audio    [ ESC ] Salir"
 	ebitenutil.DebugPrintAt(screen, hint2, sw/2-len(hint2)*3, sh-32)
 
 	credit := fmt.Sprintf("gosms  ©  Creado por %s", authorName)
@@ -1078,8 +1295,10 @@ func (g *game) drawHelp(screen *ebiten.Image) {
 		{"Z / Espacio", "Botón 1"},
 		{"X", "Botón 2"},
 		{"P / Enter", "PAUSE / START"},
-		{"F5 / F8", "Guardar / cargar"},
-		{"F1 / F2", "Vídeo / audio"},
+		{"F3 / F4", "Guardar / cargar"},
+		{"F5", "Captura de pantalla"},
+		{"F1 / F2", "Filtros de vídeo / audio"},
+		{"M / F6", "Música ON / OFF"},
 		{"F10", "HD / original"},
 		{"F11", "Pantalla completa"},
 		{"Esc", "Volver al menú"},
@@ -1087,11 +1306,11 @@ func (g *game) drawHelp(screen *ebiten.Image) {
 	right := [][2]string{
 		{"Enter / A / Start", "Jugar"},
 		{"D-pad / stick", "Elegir juego"},
-		{"F3", "Carpeta de ROMs"},
+		{"O", "Carpeta de ROMs"},
 		{"R", "Regenerar carátula"},
 		{"F12 / H", "Abrir / cerrar ayuda"},
 		{"B / Back / Esc", "Salir"},
-		{"F9 / F7", "Herramientas de desarrollo"},
+		{"F9", "Herramientas de desarrollo"},
 	}
 	for i, line := range left {
 		drawLine(col1, y0+20+float64(i)*18, line[0], line[1])
@@ -1208,6 +1427,7 @@ func main() {
 	crop := flag.Bool("crop", true, "recortar los 8 píxeles de overscan lateral izquierdo")
 	romsDir := flag.String("roms", "roms", "directorio donde buscar juegos")
 	hd := flag.Bool("hd", false, "arrancar con el pack HD activado")
+	musicMix := flag.Bool("music-mix", false, "mezcla el PSG con theme.ogg en vez de silenciar la música original")
 	filter := flag.Int("filter", int(VideoFilterPixelPerfect), "filtro de vídeo inicial (0-5)")
 	bench := flag.Int("bench", 0, "ejecuta N frames y sale midiendo FPS (requiere ROM)")
 	benchWarmup := flag.Int("bench-warmup", 3600, "frames de calentamiento antes de medir con -bench")
@@ -1245,10 +1465,12 @@ func main() {
 		fullscreen:   *fullscreen,
 		crop:         *crop,
 		audioBuf:     audioBuf,
+		audioCtx:     audioCtx,
 		videoFilter:  initialFilter,
 		audioFilter:  AudioFilterWarm, // Por defecto altavoz cálido analógico
 		pipeline:     video.New(),
 		hdMode:       *hd,
+		musicMix:     *musicMix,
 		benchFrames:  *bench,
 		benchWarmup:  *benchWarmup,
 		benchPresses: benchPresses,

@@ -24,6 +24,7 @@ type PSG struct {
 	vol       [4]uint8  // atenuación 0..15 (15 = silencio)
 	latchCh   int
 	latchType int // 0 = frecuencia, 1 = volumen
+	muteTone  bool
 
 	// Estado interno (avanza a Clock/16 Hz = 223721.5625 Hz NTSC)
 	toneCnt   [3]uint32
@@ -73,6 +74,15 @@ func New(sampleRate int) *PSG {
 }
 
 // SetSampleRate ajusta la frecuencia de muestreo.
+// SetToneMute silencia los canales de tono 0-2 sin tocar el ruido. Se usa
+// cuando un theme.ogg sustituye la musica original pero se quieren conservar
+// los efectos de sonido.
+func (p *PSG) SetToneMute(mute bool) {
+	p.mu.Lock()
+	p.muteTone = mute
+	p.mu.Unlock()
+}
+
 func (p *PSG) SetSampleRate(rate int) {
 	p.mu.Lock()
 	p.setRate(rate)
@@ -143,6 +153,7 @@ func (p *PSG) setData(ch, data int, latch bool) {
 }
 
 type snapshot struct {
+	muteTone        bool
 	freq            [4]uint16
 	vol             [4]uint8
 	toneCnt         [3]uint32
@@ -162,6 +173,7 @@ type snapshot struct {
 func (p *PSG) takeSnapshot() snapshot {
 	p.mu.Lock()
 	s := snapshot{
+		muteTone:        p.muteTone,
 		freq:            p.freq,
 		vol:             p.vol,
 		toneCnt:         p.toneCnt,
@@ -260,9 +272,11 @@ func (p *PSG) Render(out []byte) {
 		// Mezcla bipolar
 		var mix float64
 
-		for ch := 0; ch < 3; ch++ {
-			if s.vol[ch] < 15 {
-				mix += float64(s.toneOut[ch]) * volTable[s.vol[ch]]
+		if !s.muteTone {
+			for ch := 0; ch < 3; ch++ {
+				if s.vol[ch] < 15 {
+					mix += float64(s.toneOut[ch]) * volTable[s.vol[ch]]
+				}
 			}
 		}
 
@@ -310,12 +324,14 @@ func (p *PSG) WriteState(w *os.File) error {
 		NoiseOut        int8
 		PsgClkPerSample uint64
 		PsgClkAccum     uint64
+		MuteTone        bool
 	}{
 		Freq: p.freq, Vol: p.vol, LatchCh: p.latchCh, LatchType: p.latchType,
 		ToneCnt: p.toneCnt, ToneOut: p.toneOut, NoiseCnt: p.noiseCnt,
 		NoiseSeed: p.noiseSeed, NoiseMode: p.noiseMode, NoiseFreq: p.noiseFreq,
 		NoiseFref: p.noiseFref, NoiseOut: p.noiseOut,
 		PsgClkPerSample: p.psgClkPerSample, PsgClkAccum: p.psgClkAccum,
+		MuteTone: p.muteTone,
 	}
 	dec := gob.NewEncoder(w)
 	return dec.Encode(&state)
@@ -341,6 +357,7 @@ func (p *PSG) ReadState(r *os.File) error {
 		NoiseOut        int8
 		PsgClkPerSample uint64
 		PsgClkAccum     uint64
+		MuteTone        bool
 	}
 	dec := gob.NewDecoder(r)
 	if err := dec.Decode(&state); err != nil {
@@ -351,5 +368,6 @@ func (p *PSG) ReadState(r *os.File) error {
 	p.noiseSeed, p.noiseMode, p.noiseFreq = state.NoiseSeed, state.NoiseMode, state.NoiseFreq
 	p.noiseFref, p.noiseOut = state.NoiseFref, state.NoiseOut
 	p.psgClkPerSample, p.psgClkAccum = state.PsgClkPerSample, state.PsgClkAccum
+	p.muteTone = state.MuteTone
 	return nil
 }

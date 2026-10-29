@@ -54,10 +54,12 @@ El emulador detecta automáticamente teclados, mandos USB/Bluetooth estándar (X
 | **Botón 2 (Salto / Disparo)** | `X` | `E` | `B` (Xbox) / `◯` (PlayStation) | Botón rojo `( 2 )` |
 | **Botón PAUSE / START (Consola)** | `P` o `Enter` | — | Botón `Start` | Botón `[ PAUSE ]` |
 | **Cambiar Filtro de Vídeo** | `F1` o `V` | — | — | — |
+| **Música de fondo ON/OFF** | `F6` o `M` | — | — | — |
 | **Alternar HD / Original** | `F10` | — | — | — |
 | **Cambiar Filtro de Audio** | `F2` o `B` | — | — | — |
-| **Guardar Partida Rápida** | `F5` | — | — | — |
-| **Cargar Partida Rápida** | `F8` | — | — | — |
+| **Guardar Partida Rápida** | `F3` | — | — | — |
+| **Cargar Partida Rápida** | `F4` | — | — | — |
+| **Captura de pantalla** | `F5` | — | — | — |
 | **Pantalla Completa** | `F11` | — | — | — |
 | **Ayuda de controles** | `F12` o `H` | — | — | Botón `CONTROLES` |
 | **Volver al Menú / Salir** | `Esc` | — | — | Botón `MENÚ` / atrás |
@@ -185,6 +187,24 @@ make pack ROM="..."
 ```
 
 Si generas varios estilos, `make select-hd ROM="..." HD_STYLE=modern-plus` activa uno sin volver a vectorizar.
+
+#### Estilos de pack
+
+- **`cinematic`**: albedo plano y fiel al original. Es el estilo por defecto.
+- **`modern-plus`**: sprites y objetos aislados con oclusión ambiental, materiales, rim light y grading moderado.
+- **`modern-strong`**: más contraste, relieve y saturación.
+
+Los **fondos se mantienen planos a propósito**: iluminar cada bloque por separado crea costuras visibles en el mosaico. El volumen moderno se reserva a sprites y objetos aislados, y los filtros **MODERN+ / MODERN+ STRONG** añaden el grading global encima del pack.
+
+> **F1** recorre los 9 filtros de vídeo: Píxel Perfect, CRT, EPX, Suavizado, Fósforo, Remaster 2026, Modern+, Modern+ Strong y Modern+ Parallax.
+
+### Música de fondo opcional
+
+Si colocas un tema propio en `assets/<ROM>/music/theme.ogg` (Ogg **Vorbis**, no Opus), el emulador lo reproduce en bucle y **silencia los canales de tono del PSG** para no duplicar la música original; los efectos de ruido siguen sonando. **F6** o **M** lo activa o desactiva. Con `-music-mix` se mezclan ambos. Si el OGG es Opus u otro formato, se convierte automáticamente a Vorbis con `ffmpeg` y se cachea como `theme-vorbis.ogg`.
+
+`make objects` y `make remaster` conservan `music/`, validan el formato y lo convierten a Vorbis si hace falta con `ffmpeg`.
+
+### Bloques de fondo
 
 La extracción agrupa bloques de fondo de 8×8 tiles para vectorizar escenarios completos en vez de tiles aislados. Usa `BG_GROUP=0` para desactivarlos o `BG_PROTECT=3` para proteger más filas del HUD.
 

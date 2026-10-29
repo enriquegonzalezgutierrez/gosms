@@ -5,6 +5,7 @@ package main
 
 import (
 	"image"
+	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
@@ -135,6 +136,8 @@ func (g *game) pipelineOptions() video.Options {
 		preset = video.PresetModernPlus
 	case VideoFilterModernStrong:
 		preset = video.PresetModernStrong
+	case VideoFilterModernParallax:
+		preset = video.PresetModernPlus
 	default:
 		preset = video.PresetPixelPerfect
 	}
@@ -142,12 +145,31 @@ func (g *game) pipelineOptions() video.Options {
 	// El HD usa albedo plano: no hay pase de altura ni relieve dinamico.
 	opts.HeightLit = 0
 	opts.Relief = 0
-	if g.hdMode && machine.HD != nil && machine.HD.Active &&
-		(preset == video.PresetModern || preset == video.PresetModernPlus ||
-			preset == video.PresetModernStrong || preset == video.PresetCRT) {
-		if c := machine.HD.Backdrop(g.m.VDP); machine.IsSkyColor(c) {
+	if preset == video.PresetModern || preset == video.PresetModernPlus ||
+		preset == video.PresetModernStrong || preset == video.PresetCRT {
+		// El cielo/parallax no depende del pack HD: tambien debe funcionar con
+		// F10 desactivado sobre el frame nativo.
+		var c color.RGBA
+		if g.hdMode && machine.HD != nil && machine.HD.Active {
+			c = machine.HD.Backdrop(g.m.VDP)
+		} else {
+			c = decodeColorVDP(g.m.VDP.CRAM[16+int(g.m.VDP.Reg[7]&0x0F)])
+		}
+		if machine.IsSkyColor(c) {
 			opts.Sky = true
 			opts.SkyColor = [3]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255}
+		}
+	}
+	if g.videoFilter == VideoFilterModernParallax {
+		opts.Parallax = true
+		if g.m != nil && g.m.VDP != nil {
+			sx := int(g.m.VDP.Reg[8])
+			if g.m.VDP.LineScrollValid {
+				sx = int(g.m.VDP.LineScrollX[0])
+			}
+			_ = sx
+			opts.ScrollX = float32(g.parallaxX)
+			opts.ScrollY = float32(g.parallaxY)
 		}
 	}
 	if g.videoFilter == VideoFilterScanlines {

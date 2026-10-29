@@ -103,6 +103,13 @@ func inputForFrame(frame int, bot string) byte {
 	return pad
 }
 
+func decodeColorVDP(c byte) color.RGBA {
+	r := (c & 3) * 85
+	g := ((c >> 2) & 3) * 85
+	b := ((c >> 4) & 3) * 85
+	return color.RGBA{R: r, G: g, B: b, A: 255}
+}
+
 func parsePreset(name string) (video.Preset, bool) {
 	switch name {
 	case "pixel", "pixel-perfect":
@@ -115,6 +122,8 @@ func parsePreset(name string) (video.Preset, bool) {
 		return video.PresetModernPlus, false
 	case "modern-strong", "modernstrong", "modern+strong":
 		return video.PresetModernStrong, false
+	case "modern-parallax", "modernparallax", "parallax":
+		return video.PresetModernPlus, false
 	case "crt", "scanlines":
 		return video.PresetCRT, name == "scanlines"
 	case "mono", "monochrome":
@@ -189,6 +198,9 @@ func main() {
 	crop := flag.Bool("crop", true, "recortar los 8 píxeles de overscan izquierdo")
 	filter := flag.String("filter", "modern", "pixel, smooth, modern, crt, scanlines o mono")
 	noSky := flag.Bool("nosky", false, "desactiva el degradado moderno del cielo")
+	parallax := flag.Bool("parallax", false, "activa el fondo lejano procedural (MODERN+ PARALLAX)")
+	debug := flag.Bool("debug", false, "imprime estado del VDP tras emular")
+	scrollX := flag.Float64("scrollx", -1, "fuerza el scroll X normalizado (pruebas de parallax)")
 	pause := flag.Int("pause", -1, "pulsa PAUSE/NMI en este frame (util para capturar el mapa)")
 	script := flag.String("script", "", "guion de entradas: frame:padhex:frames,...")
 	poke := flag.String("poke", "", "pokes de RAM: frame:addr=val,...")
@@ -232,6 +244,10 @@ func main() {
 		m.RunFrame()
 	}
 
+	if *debug {
+		fmt.Printf("frame=%d scrollX=%d scrollY=%d line0=%d\n", *frames, m.VDP.Reg[8], m.VDP.Reg[9], m.VDP.LineScrollX[0])
+	}
+
 	var src *ebiten.Image
 	var srcRect image.Rectangle
 	if *hd {
@@ -268,11 +284,29 @@ func main() {
 	opts := video.DefaultOptions(preset, *hd)
 	opts.HeightLit = 0
 	opts.Relief = 0
-	if *hd && machine.HD != nil && machine.HD.Active && !*noSky &&
-		(preset == video.PresetModern || preset == video.PresetCRT) {
-		if c := machine.HD.Backdrop(m.VDP); machine.IsSkyColor(c) {
+	if !*noSky && (preset == video.PresetModern || preset == video.PresetModernPlus ||
+		preset == video.PresetModernStrong || preset == video.PresetCRT) {
+		var c color.RGBA
+		if *hd && machine.HD != nil && machine.HD.Active {
+			c = machine.HD.Backdrop(m.VDP)
+		} else {
+			c = decodeColorVDP(m.VDP.CRAM[16+int(m.VDP.Reg[7]&0x0F)])
+		}
+		if machine.IsSkyColor(c) {
 			opts.Sky = true
 			opts.SkyColor = [3]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255}
+		}
+	}
+	if *parallax || *filter == "modern-parallax" || *filter == "modernparallax" || *filter == "parallax" {
+		opts.Parallax = true
+		sx := int(m.VDP.Reg[8])
+		if m.VDP.LineScrollValid {
+			sx = int(m.VDP.LineScrollX[0])
+		}
+		opts.ScrollX = float32(sx) / float32(vdp.ScreenW)
+		opts.ScrollY = float32(m.VDP.Reg[9]) / float32(vdp.ScreenH)
+		if *scrollX >= 0 {
+			opts.ScrollX = float32(*scrollX)
 		}
 	}
 	if onlyScanlines {
