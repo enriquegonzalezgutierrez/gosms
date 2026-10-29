@@ -134,7 +134,13 @@ type HDRenderer struct {
 
 	TileMap   map[string]*ebiten.Image
 	ShadowMap map[string]*ebiten.Image
-	Scale     int
+
+	// PriorityMap guarda la version de un tile de fondo con el indice 0
+	// transparente. Solo la usan las baldosas prioritarias que deben dejar ver
+	// los sprites detras de sus huecos, como hace el VDP nativo.
+	PriorityMap  map[string]*ebiten.Image
+	PriorityMask map[string]*ebiten.Image
+	Scale        int
 }
 
 var HD *HDRenderer
@@ -149,6 +155,75 @@ func TileHash(tileData []byte, cram []byte, isSprite bool) string {
 		h.Write([]byte{0})
 	}
 	return fmt.Sprintf("%016x", h.Sum64())
+}
+
+// GetPriorityTile devuelve el tile HD con sus pixeles de indice 0 recortados.
+// El VDP nativo pinta el fondo prioritario antes que los sprites y los deja
+// pasar por los pixeles transparentes; el pack HD guarda esos huecos opacos,
+// asi que esta variante se dibuja encima de los sprites para reproducir el
+// mismo recorte.
+func (hd *HDRenderer) GetPriorityTile(tileData, cram []byte, img *ebiten.Image) *ebiten.Image {
+	if hd == nil || img == nil || len(tileData) < 32 {
+		return img
+	}
+	if hd.PriorityMap == nil {
+		hd.PriorityMap = make(map[string]*ebiten.Image)
+	}
+	key := TileHash(tileData, cram, false)
+	if cached, ok := hd.PriorityMap[key]; ok {
+		return cached
+	}
+
+	bounds := img.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	masked := ebiten.NewImage(width, height)
+	masked.DrawImage(img, nil)
+
+	op := &ebiten.DrawImageOptions{Blend: ebiten.BlendDestinationIn}
+	op.Filter = ebiten.FilterNearest
+	op.GeoM.Scale(float64(width)/8.0, float64(height)/8.0)
+	masked.DrawImage(hd.priorityMask(tileData), op)
+	hd.PriorityMap[key] = masked
+	return masked
+}
+
+// priorityMask crea la silueta de una baldosa: opaca donde el indice de color
+// no es 0. Se cachea por patron de VRAM porque no depende de la paleta.
+func (hd *HDRenderer) priorityMask(tileData []byte) *ebiten.Image {
+	if hd.PriorityMask == nil {
+		hd.PriorityMask = make(map[string]*ebiten.Image)
+	}
+	key := string(tileData)
+	if cached, ok := hd.PriorityMask[key]; ok {
+		return cached
+	}
+	mask := ebiten.NewImage(8, 8)
+	mask.WritePixels(priorityMaskPixels(tileData))
+	hd.PriorityMask[key] = mask
+	return mask
+}
+
+// priorityMaskPixels construye la silueta RGBA de una baldosa: blanca y opaca
+// donde el indice de color no es 0, y transparente en los huecos.
+func priorityMaskPixels(tileData []byte) []byte {
+	buf := make([]byte, 8*8*4)
+	for i := 0; i < 8*8; i++ {
+		buf[i*4] = 255
+		buf[i*4+1] = 255
+		buf[i*4+2] = 255
+		buf[i*4+3] = 255
+	}
+	for y := 0; y < 8 && y*4+3 < len(tileData); y++ {
+		b0, b1, b2, b3 := tileData[y*4], tileData[y*4+1], tileData[y*4+2], tileData[y*4+3]
+		for x := 0; x < 8; x++ {
+			bit := uint(7 - x)
+			c := ((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3)
+			if c == 0 {
+				buf[(y*8+x)*4+3] = 0
+			}
+		}
+	}
+	return buf
 }
 
 func decodeColorVDP(c byte) color.RGBA {

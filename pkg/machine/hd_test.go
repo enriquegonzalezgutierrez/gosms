@@ -80,6 +80,68 @@ func TestLoadHDPackV2(t *testing.T) {
 	}
 }
 
+func TestPriorityMaskPixels(t *testing.T) {
+	tile := make([]byte, 32)
+	for y := 0; y < 8; y++ {
+		tile[y*4] = 0x7F // color 1 en x=1..7, indice 0 en x=0
+	}
+	mask := priorityMaskPixels(tile)
+	for y := 0; y < 8; y++ {
+		if alpha := mask[(y*8)*4+3]; alpha != 0 {
+			t.Fatalf("fila %d: el hueco de indice 0 deberia ser transparente (alfa %d)", y, alpha)
+		}
+		for x := 1; x < 8; x++ {
+			if alpha := mask[(y*8+x)*4+3]; alpha != 255 {
+				t.Fatalf("fila %d col %d: el pixel solido deberia ser opaco (alfa %d)", y, x, alpha)
+			}
+		}
+	}
+	full := make([]byte, 32)
+	for i := range full {
+		full[i] = 0xFF
+	}
+	for i, alpha := range priorityMaskPixels(full) {
+		if i%4 == 3 && alpha != 255 {
+			t.Fatalf("baldosa solida: alfa %d", alpha)
+		}
+	}
+}
+
+func TestDrawLayerPrioritySmoke(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Skipf("graphics context unavailable: %v", r)
+		}
+	}()
+	v := vdp.New()
+	v.Reg[1] |= 0x40 // pantalla activa
+	v.Reg[2] = 0x0E  // name table en 0x3800
+	v.Reg[5] = 0x7E  // SAT en 0x3F00
+	for i := range v.CRAM {
+		v.CRAM[i] = byte(i)
+	}
+	// Baldosa prioritaria con un hueco de indice 0 en (0,0).
+	v.VRAM[0x3801] = 0x10
+	for y := 0; y < 8; y++ {
+		v.VRAM[y*4] = 0x7F
+	}
+	// Sprite encima, en la misma celda.
+	sat := 0x3F00
+	v.VRAM[sat] = 99
+	v.VRAM[sat+128] = 0
+	v.VRAM[sat+129] = 1
+	for i := 0; i < 32; i++ {
+		v.VRAM[32+i] = 0xFF
+	}
+
+	hd := &HDRenderer{Active: true, Scale: 4, TileMap: map[string]*ebiten.Image{}}
+	dst := ebiten.NewImage(vdp.ScreenW*4, vdp.ScreenH*4)
+	hd.DrawLayer(v, dst, nil, 4, 0, 0, false)
+	if len(hd.PriorityMap) == 0 {
+		t.Fatal("no se genero la variante recortada del fondo prioritario")
+	}
+}
+
 func TestDrawLayerSmoke(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {

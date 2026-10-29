@@ -211,6 +211,15 @@ modernos. Si se escribe el nombre del estilo en `grade.json`, el fondo del VDP
 queda sin graduar y aparecen rectángulos azules a través de los tiles
 transparentes.
 
+## Prioridad del fondo
+
+El VDP nativo deja pasar los sprites por los píxeles de **índice 0** de las
+baldosas con prioridad. El pack HD guarda esas baldosas opacas, así que
+`DrawLayer` las dibuja dos veces: primero completas, debajo de los sprites, y
+después recortadas por su silueta de índice 0, encima. Así los sprites asoman
+solo por los huecos y siguen ocultos bajo los píxeles sólidos, igual que en la
+consola. La variante recortada se cachea por tile y no añade coste por frame.
+
 ## Carpetas
 
 | Carpeta | Contenido |

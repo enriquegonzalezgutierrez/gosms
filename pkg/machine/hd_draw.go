@@ -127,6 +127,7 @@ func tileHasHole(tileData []byte) bool {
 
 type bgDrawItem struct {
 	img          *ebiten.Image
+	pimg         *ebiten.Image
 	himg         *ebiten.Image
 	drawX, drawY float64
 	sX, sY       float64
@@ -259,18 +260,34 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 
 				item := bgDrawItem{
 					img:   img,
+					pimg:  nil,
 					himg:  himg,
 					drawX: drawX, drawY: drawY,
 					sX: sX, sY: sY,
 					tX: tX, tY: tY,
 				}
 				if prio {
+					// El fondo prioritario se dibuja debajo y, tras los sprites,
+					// se repinta recortado por sus huecos de indice 0.
+					item.pimg = hd.GetPriorityTile(tileData, cram, img)
 					bgHigh = append(bgHigh, item)
 				} else {
 					bgLow = append(bgLow, item)
 				}
 			}
 		}
+	}
+
+	drawBgImage := func(img *ebiten.Image, item bgDrawItem) {
+		op := &ebiten.DrawImageOptions{}
+		op.Filter = ebiten.FilterLinear
+		if hdScale == 1 {
+			op.Filter = ebiten.FilterNearest
+		}
+		op.GeoM.Scale(item.sX, item.sY)
+		op.GeoM.Translate(item.tX, item.tY)
+		op.GeoM.Translate(item.drawX, item.drawY)
+		screen.DrawImage(img, op)
 	}
 
 	drawBgItem := func(item bgDrawItem) {
@@ -288,8 +305,12 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 		}
 	}
 
-	// Capa 1: Fondo Normal
+	// Capa 1: Fondo Normal y Prioritario completo. El prioritario se pinta
+	// primero para que sus pixeles opacos sigan viendose donde no hay sprite.
 	for _, item := range bgLow {
+		drawBgItem(item)
+	}
+	for _, item := range bgHigh {
 		drawBgItem(item)
 	}
 
@@ -423,9 +444,13 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 		}
 	}
 
-	// Capa 3: Fondo Prioritario
+	// Capa 3: Fondo Prioritario recortado por sus huecos. Asi los sprites se
+	// ven a traves del indice 0 igual que en el VDP nativo, pero siguen ocultos
+	// bajo los pixeles solidos de la baldosa.
 	for _, item := range bgHigh {
-		drawBgItem(item)
+		if item.pimg != nil {
+			drawBgImage(item.pimg, item)
+		}
 	}
 
 	// 4. Máscara de recorte de bordes 4:3
