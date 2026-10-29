@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Enrique González Gutiérrez
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package psg implementa el chip de sonido SN76489 de la Master System.
 // Basado en emu76489 (Mitsutaka Okazaki) y MAME.
 package psg

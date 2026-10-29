@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Enrique González Gutiérrez
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Command preview renders a single emulator frame to a PNG using the same
 // post-processing pipeline as the desktop emulator. It is useful for comparing
 // the original frame, the modern preset and the HD remaster without opening the

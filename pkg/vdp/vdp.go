@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Enrique González Gutiérrez
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package vdp implementa el VDP de la Sega Master System (modo 4).
 package vdp
 
@@ -89,7 +92,6 @@ type VDP struct {
 	vScroll     byte
 	irq         bool
 	IsPAL       bool
-
 
 	// Frame es el framebuffer RGBA (256x192) listo para volcar.
 	Frame [ScreenW * ScreenH * 4]byte
@@ -218,7 +220,7 @@ func (v *VDP) ClearIRQ() { v.irq = false }
 func (v *VDP) SetLine(line int) {
 	v.line = line
 
-	if line == ScreenH + 1 { // comienza el VBlank
+	if line == ScreenH+1 { // comienza el VBlank
 		v.Status |= 0x80
 		v.vScroll = v.Reg[9] // el scroll vertical se fija en el VBlank
 	}

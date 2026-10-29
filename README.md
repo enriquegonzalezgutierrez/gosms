@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Accuracy-99.7%25-d946ef?style=for-the-badge" alt="Accuracy"/>
   <img src="https://img.shields.io/badge/Audio-48kHz%20Zero--Jitter-10b981?style=for-the-badge" alt="Audio"/>
   <img src="https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20Android-f59e0b?style=for-the-badge" alt="Platforms"/>
-  <a href="#licencia"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"/></a>
+  <a href="#licencia"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge" alt="License"/></a>
 </p>
 
 ---
@@ -234,8 +234,23 @@ El repositorio incluye herramientas CLI dedicadas para análisis técnico:
 
 Desarrollado con pasión por **Enrique González Gutiérrez**.
 
+Copyright © 2026 Enrique González Gutiérrez.
+
 ---
 
 ## 📄 Licencia
 
-Este proyecto está bajo la Licencia MIT. Consulta el archivo `LICENSE` para más detalles.
+GoSMS se distribuye bajo la **GNU Affero General Public License v3.0 o posterior**
+(AGPL-3.0-or-later). Consulta [`LICENSE`](LICENSE) para el texto completo y
+[`LICENSING.md`](LICENSING.md) para los detalles.
+
+Si necesitas integrar GoSMS en un producto propietario o utilizarlo sin las
+obligaciones de AGPL, hay una **licencia comercial** disponible a través del
+repositorio: https://github.com/enriquegonzalezgutierrez/gosms.
+
+La licencia cubre el código del emulador. Las ROMs, los packs gráficos derivados
+y otros materiales de terceros no se distribuyen con el repositorio y siguen
+perteneciendo a sus titulares.
+
+Para pruebas de autoría, registro y vigilancia, consulta
+[`docs/PROPIEDAD_INTELECTUAL.md`](docs/PROPIEDAD_INTELECTUAL.md).

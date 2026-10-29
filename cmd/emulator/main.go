@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Enrique González Gutiérrez
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Command emulator arranca una Sega Master System con interfaz moderna,
 // selector de ROMs y filtros de post-procesado de vídeo y audio en tiempo real.
 // Desarrollado por Enrique González Gutiérrez.

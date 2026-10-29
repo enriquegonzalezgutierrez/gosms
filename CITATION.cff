@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "Si usas GoSMS en un trabajo académico o técnico, cita este repositorio."
+title: "GoSMS: emulador de Sega Master System"
+type: software
+authors:
+  - family-names: "González Gutiérrez"
+    given-names: "Enrique"
+repository-code: "https://github.com/enriquegonzalezgutierrez/gosms"
+url: "https://github.com/enriquegonzalezgutierrez/gosms"
+license: "AGPL-3.0-or-later"
+keywords:
+  - "Sega Master System"
+  - "emulator"
+  - "Go"
+  - "Ebiten"
+  - "Z80"
+  - "VDP"
+  - "PSG"

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Enrique González Gutiérrez
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package video contains the shared post-processing pipeline used by the
 // desktop and mobile front ends.
 package video
