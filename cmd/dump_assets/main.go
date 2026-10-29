@@ -408,6 +408,63 @@ func decodeTile(tileBytes []byte, palBytes []byte, isSprite bool) *image.RGBA {
 	return img
 }
 
+// captureVisibleTiles añade los tiles de fondo y sprites visibles en el frame
+// actual. Se usa para las pantallas estáticas de título y menú, que quedan
+// fuera del recorrido normal de niveles.
+func captureVisibleTiles(v *vdp.VDP, addTile func(tileData, cram []byte, isSprite bool) (int, string)) {
+	bgCram0 := v.CRAM[0:16]
+	bgCram1 := v.CRAM[16:32]
+	sprCram := v.CRAM[16:32]
+	if isPaletteValid(bgCram0) || isPaletteValid(bgCram1) {
+		nameBase := int(v.Reg[2]&0x0E) << 10
+		for row := 0; row < 28; row++ {
+			for col := 0; col < 32; col++ {
+				off := (nameBase + row*64 + col*2) & 0x3FFF
+				entry := uint16(v.VRAM[(off+1)&0x3FFF])<<8 | uint16(v.VRAM[off])
+				tile := int(entry & 0x1FF)
+				pal := entry&0x800 != 0
+				pat := (tile * 32) & 0x3FFF
+				cram := bgCram0
+				if pal {
+					cram = bgCram1
+				}
+				if isPaletteValid(cram) {
+					addTile(v.VRAM[pat:pat+32], cram, false)
+				}
+			}
+		}
+	}
+	if !isPaletteValid(sprCram) {
+		return
+	}
+	satBase := int(v.Reg[5]&0x7E) << 7
+	patBase := int(v.Reg[6]&0x04) << 11
+	tall := v.Reg[1]&0x02 != 0
+	for i := 0; i < 64; i++ {
+		rawY := int(v.VRAM[(satBase+i)&0x3FFF])
+		if rawY == 0 {
+			continue
+		}
+		if rawY == 0xD0 {
+			break
+		}
+		y := (rawY + 1) & 0xFF
+		if y >= vdp.ScreenH || (tall && y+16 > vdp.ScreenH) {
+			continue
+		}
+		tile := int(v.VRAM[(satBase+128+i*2+1)&0x3FFF])
+		parts := 1
+		if tall {
+			parts = 2
+			tile &^= 1
+		}
+		for p := 0; p < parts; p++ {
+			pat := (patBase + (tile+p)*32) & 0x3FFF
+			addTile(v.VRAM[pat:pat+32], sprCram, true)
+		}
+	}
+}
+
 func isBlankTile(b []byte) bool {
 	for _, v := range b {
 		if v != 0 {
@@ -683,6 +740,31 @@ func main() {
 			}
 		}
 	}
+	// El título y el menú de Castle viven en los boot frames que las sesiones
+	// saltan. Se capturan al final para que sus tiles se añadan detrás de los
+	// del gameplay y no desplacen ningún índice existente.
+	if *castle {
+		windows := [][2]int{{860, 990}, {1070, 1190}}
+		titles := machine.New(data)
+		before := len(manifest)
+		for f := 0; f <= windows[len(windows)-1][1]; f++ {
+			titles.CPU.Pad1 = castlePad(f, *bot, castleBootFrames)
+			titles.RunFrame()
+			capture := false
+			for _, w := range windows {
+				if f >= w[0] && f <= w[1] {
+					capture = true
+					break
+				}
+			}
+			if !capture || f%10 != 0 {
+				continue
+			}
+			captureVisibleTiles(titles.VDP, addTile)
+		}
+		fmt.Printf("🎬 Título y menú: %d tiles nuevos.\n", len(manifest)-before)
+	}
+
 	if staticAlexKidd {
 		for level := 1; level <= len(alexKiddLevelNames); level++ {
 			if err := addStaticTileSets(data, level, addTile, uniqueTiles, objects); err != nil {

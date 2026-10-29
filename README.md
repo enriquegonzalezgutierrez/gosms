@@ -114,9 +114,11 @@ refactors están en [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 
 El remaster es **matemático, sin IA**: vectoriza cada objeto con campos de distancia, aplica antialiasing real y deja el **albedo plano** con la paleta de cine. El emulador le añade el **cielo moderno** (degradado y halo de sol) y el postprocesado. No descarga modelos y es determinista.
 
+En **Castle of Illusion**, además de los seis mundos, se capturan la pantalla de título y el menú `PRACTICE / NORMAL` como ventanas estáticas: son pantallas fijas y ganan mucho en HD sin ensuciar el pack con transiciones.
+
 ### Antes y después
 
-Misma captura y mismo frame de juego, sin menús. La columna derecha usa **F10** (pack HD 4×) y **F1 → Remaster 2026**.
+Misma captura y mismo frame de juego, sin menús ni superposiciones. La columna derecha usa **F10** (pack HD 4×) y **F1 → Remaster 2026**.
 
 **Alex Kidd in Miracle World**
 
@@ -135,6 +137,16 @@ Misma captura y mismo frame de juego, sin menús. La columna derecha usa **F10**
 | Original | F10 + Remaster 2026 |
 |---|---|
 | <img src="docs/media/remaster/castle-original.png" width="480" alt="Castle of Illusion original"> | <img src="docs/media/remaster/castle-remaster.png" width="480" alt="Castle of Illusion con F10 y Remaster 2026"> |
+
+**Pantallas de título**
+
+Castle of Illusion remasteriza también el título y el menú de dificultad. Son
+pantallas fijas, así que se capturan aparte de los seis mundos.
+
+| Pantalla | Original | F10 + Remaster 2026 |
+|---|---|---|
+| Título | <img src="docs/media/remaster/castle-title-original.png" width="400" alt="Título original de Castle of Illusion"> | <img src="docs/media/remaster/castle-title-remaster.png" width="400" alt="Título de Castle of Illusion remasterizado"> |
+| Menú | <img src="docs/media/remaster/castle-menu-original.png" width="400" alt="Menú original de Castle of Illusion"> | <img src="docs/media/remaster/castle-menu-remaster.png" width="400" alt="Menú de Castle of Illusion remasterizado"> |
 
 ### Parallax 2.5
 

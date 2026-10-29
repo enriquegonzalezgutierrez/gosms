@@ -147,7 +147,7 @@ deja ver el albedo plano.
 | `HD_STYLE` | `modern-plus` | Estilo que activa `make select-hd` si hay varios packs generados. |
 | `BOT` | `alex-kidd` | Perfil de la extracción; `default` corre a la derecha y salta (Sonic y otros). |
 | `SONIC_ALL` | vacío | `1` recorre los 18 actos de Sonic 1 con el selector de nivel por RAM. |
-| `CASTLE_ALL` | vacío | `1` recorre los 6 mundos de Castle of Illusion entrando por las puertas. |
+| `CASTLE_ALL` | vacío | `1` recorre los 6 mundos de Castle of Illusion entrando por las puertas. También captura el título y el menú `PRACTICE / NORMAL`. |
 | `FRAMES` | `6500` | Frames emulados durante la extracción; más frames, más escenas. |
 
 Los ajustes de dibujo y de paleta están en la sección siguiente.
