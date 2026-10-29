@@ -162,6 +162,21 @@ Este comando compila de forma paralela y genera en el directorio `dist/`:
 2. **🪟 Windows**: Paquete portable `dist/gosms-windows-release.zip` con ejecutable GUI optimizado (sin consola CMD emergente).
 3. **📱 Android**: Archivo `dist/gosms-android/gosms.apk` compilado dentro de un contenedor Docker aislado mediante `ebitenmobile` y empaquetado nativamente con el SDK de Android (`aapt2`, `d8`, `zipalign` y `apksigner`).
 
+### Release completa local (ROMs + HD)
+
+Para uso personal, `make release-complete` genera paquetes de Linux y Windows que ya incluyen **todas las ROMs de `roms/`** y los **packs HD de `assets/<juego>/hd`**:
+
+```bash
+make release-complete
+```
+
+- `dist/gosms-linux-complete.zip`
+- `dist/gosms-windows-complete.zip`
+
+Solo copia los packs (`hd/`), no los `remaster_workspace/` intermedios. Los ZIP pesan unos 50 MB con 333 ROMs y el pack de Sonic 1.
+
+> ⚠️ **No subas estos ZIP a GitHub ni a ningún sitio público**: contienen ROMs y assets con copyright. `dist/`, `roms/` y `assets/` están en `.gitignore`, así que no entran en el repositorio.
+
 ### Android
 
 La APK arranca en un **lanzador con la estética del escritorio**. Como Android no permite leer una carpeta `roms/`, el botón **ELEGIR ROM** abre el selector de archivos del sistema y carga un `.sms`:

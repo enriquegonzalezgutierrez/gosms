@@ -32,7 +32,7 @@ WHITE   := \033[1;37m
 RESET   := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test release audit android-docker clean-assets
+.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test release release-complete audit android-docker clean-assets
 
 help:
 	@printf "\n$(BLUE)  ╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
@@ -48,6 +48,7 @@ help:
 	@printf "  $(GREEN)make preview$(RESET)    Renderiza un frame: make preview ROM=... [PREVIEW_FILTER=modern] [PREVIEW_HD=true]\n"
 	@printf "  $(GREEN)make setup$(RESET)      Crea .venv-remaster con numpy (opcional, acelera el vectorizado)\n"
 	@printf "  $(GREEN)make release$(RESET)    Compila para Linux/Windows/Android y genera los zips\n"
+	@printf "  $(GREEN)make release-complete$(RESET) Linux/Windows con todas las ROMs y packs HD (uso local)\n"
 	@printf "  $(GREEN)make audit$(RESET)      Ejecuta auditoría de compatibilidad de todas las ROMs\n"
 	@printf "  $(GREEN)make clean$(RESET)      Limpia los binarios compilados\n\n"
 
@@ -170,6 +171,38 @@ release:
 	@printf "  🐧 Linux ZIP:   $(CYAN)dist/gosms-linux-release.zip$(RESET)\n"
 	@printf "  🪟 Windows ZIP: $(CYAN)dist/gosms-windows-release.zip$(RESET)\n"
 	@printf "  📱 Android APK: $(CYAN)dist/gosms-android/gosms.apk$(RESET)\n"
+
+# Release local con contenido sensible al copyright: ROMs y packs HD.
+# Los ZIP resultantes NO deben subirse a GitHub ni a ningún sitio público.
+release-complete:
+	@mkdir -p bin dist
+	@printf "$(BLUE)==> Compilando para Linux (Ubuntu)...$(RESET)\n"
+	@GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/gosms-linux ./$(CMD_DIR)/emulator
+	@printf "$(BLUE)==> Compilando para Windows (Win64 sin consola)...$(RESET)\n"
+	@GOOS=windows GOARCH=amd64 go build -ldflags="-H=windowsgui -s -w" -o bin/gosms-win64.exe ./$(CMD_DIR)/emulator
+	@set -e; \
+	for pair in "linux:gosms-linux:gosms" "windows:gosms-win64.exe:gosms.exe"; do \
+		os=$${pair%%:*}; rest=$${pair#*:}; bin=$${rest%%:*}; exe=$${rest#*:}; \
+		dir="dist/gosms-$$os-complete"; \
+		printf "$(BLUE)==> Preparando paquete completo para %s...$(RESET)\n" "$$os"; \
+		rm -rf "$$dir"; \
+		mkdir -p "$$dir/roms"; \
+		cp "bin/$$bin" "$$dir/$$exe"; \
+		cp README.md CONTROLES.md "$$dir/"; \
+		if [ -d roms ]; then cp -r roms/. "$$dir/roms/"; fi; \
+		for hd in assets/*/hd; do \
+			[ -f "$$hd/manifest.json" ] || [ -f "$$hd/pack.json" ] || continue; \
+			game=$$(basename "$$(dirname "$$hd")"); \
+			mkdir -p "$$dir/assets/$$game"; \
+			cp -r "$$hd" "$$dir/assets/$$game/"; \
+		done; \
+		printf "GoSMS completo para %s\n\nIncluye todas las ROMs de roms/ y los packs HD de assets/<juego>/hd.\nUso local: este ZIP contiene material con copyright y no debe publicarse.\n" "$$os" > "$$dir/LEEME.txt"; \
+		(cd dist && rm -f "gosms-$$os-complete.zip" && zip -qr "gosms-$$os-complete.zip" "gosms-$$os-complete"); \
+	done
+	@printf "$(GREEN)✨ RELEASES COMPLETAS LOCALES LISTAS$(RESET)\n"
+	@printf "  🐧 Linux:   $(CYAN)dist/gosms-linux-complete.zip$(RESET) ($$(du -h dist/gosms-linux-complete.zip | cut -f1))\n"
+	@printf "  🪟 Windows: $(CYAN)dist/gosms-windows-complete.zip$(RESET) ($$(du -h dist/gosms-windows-complete.zip | cut -f1))\n"
+	@printf "  $(YELLOW)⚠️  No subas estos ZIP a GitHub: incluyen ROMs y assets con copyright.$(RESET)\n"
 
 android-docker:
 	@printf "$(BLUE)==> Verificando imagen Docker para Android...$(RESET)\n"
