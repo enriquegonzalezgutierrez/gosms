@@ -16,6 +16,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
@@ -119,6 +120,61 @@ func parsePreset(name string) (video.Preset, bool) {
 	}
 }
 
+type padPress struct {
+	start int
+	pad   byte
+	len   int
+}
+
+func parsePadScript(s string) []padPress {
+	var out []padPress
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		fields := strings.Split(part, ":")
+		if len(fields) < 2 {
+			continue
+		}
+		var start, length int
+		var pad uint
+		fmt.Sscanf(fields[0], "%d", &start)
+		fmt.Sscanf(fields[1], "%x", &pad)
+		length = 8
+		if len(fields) > 2 {
+			fmt.Sscanf(fields[2], "%d", &length)
+		}
+		out = append(out, padPress{start: start, pad: byte(pad), len: length})
+	}
+	return out
+}
+
+type ramPoke struct {
+	frame int
+	addr  uint16
+	val   byte
+}
+
+func parsePokes(s string) []ramPoke {
+	var out []ramPoke
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" || !strings.Contains(part, ":") || !strings.Contains(part, "=") {
+			continue
+		}
+		fields := strings.SplitN(part, ":", 2)
+		kv := strings.SplitN(fields[1], "=", 2)
+		var frame int
+		var addr, val uint
+		fmt.Sscanf(fields[0], "%d", &frame)
+		fmt.Sscanf(kv[0], "%x", &addr)
+		fmt.Sscanf(kv[1], "%x", &val)
+		out = append(out, ramPoke{frame: frame, addr: uint16(addr), val: byte(val)})
+	}
+	return out
+}
+
 func main() {
 	frames := flag.Int("frames", 900, "número de frames a emular antes de la captura")
 	bot := flag.String("bot", "alex-kidd", "perfil de controles: default o alex-kidd")
@@ -130,6 +186,8 @@ func main() {
 	filter := flag.String("filter", "modern", "pixel, smooth, modern, crt, scanlines o mono")
 	noSky := flag.Bool("nosky", false, "desactiva el degradado moderno del cielo")
 	pause := flag.Int("pause", -1, "pulsa PAUSE/NMI en este frame (util para capturar el mapa)")
+	script := flag.String("script", "", "guion de entradas: frame:padhex:frames,...")
+	poke := flag.String("poke", "", "pokes de RAM: frame:addr=val,...")
 	flag.Parse()
 	if flag.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "Uso: preview [opciones] <rom.sms>")
@@ -146,11 +204,27 @@ func main() {
 		log.Fatal(err)
 	}
 	m := machine.New(rom)
+	presses := parsePadScript(*script)
+	pokes := parsePokes(*poke)
 	for i := 0; i < *frames; i++ {
 		if i == *pause {
 			m.CPU.NMI = true
 		}
-		m.CPU.Pad1 = inputForFrame(i, *bot)
+		for _, p := range pokes {
+			if i >= p.frame {
+				m.CPU.RAM[(p.addr-0xC000)&0x1FFF] = p.val
+			}
+		}
+		pad := inputForFrame(i, *bot)
+		if len(presses) > 0 {
+			pad = 0xFF
+			for _, p := range presses {
+				if i >= p.start && i < p.start+p.len {
+					pad &= p.pad
+				}
+			}
+		}
+		m.CPU.Pad1 = pad
 		m.RunFrame()
 	}
 
