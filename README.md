@@ -254,3 +254,22 @@ perteneciendo a sus titulares.
 
 Para pruebas de autoría, registro y vigilancia, consulta
 [`docs/PROPIEDAD_INTELECTUAL.md`](docs/PROPIEDAD_INTELECTUAL.md).
+
+---
+
+## ⚖️ Aviso legal
+
+GoSMS **no incluye ROMs, BIOS ni assets gráficos o sonoros de juegos**. Para
+usarlo necesitas tus propias ROMs, obtenidas legalmente.
+
+Sega, Sega Master System, Sonic The Hedgehog, Alex Kidd, Castle of Illusion,
+Mickey Mouse y el resto de nombres y personajes mencionados son marcas o
+propiedades de sus respectivos titulares. GoSMS no está afiliado, patrocinado
+ni respaldado por Sega, Disney ni ninguna otra compañía.
+
+Las capturas de comparación del README se incluyen únicamente para ilustrar el
+efecto del remaster sobre juegos que el usuario puede ejecutar con sus propias
+ROMs. Pertenecen a sus titulares y se retirarán si sus propietarios lo solicitan.
+
+Los packs HD generados a partir de una ROM son obras derivadas de su arte
+original: no se distribuyen con el repositorio y no deben publicarse.
