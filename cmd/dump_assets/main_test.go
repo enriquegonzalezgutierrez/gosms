@@ -107,3 +107,32 @@ func TestMakeBackgroundObjectsSkipsEmptyBlocks(t *testing.T) {
 		t.Fatalf("empty background should not create objects: %d", len(objects))
 	}
 }
+
+func TestGroupSpritesPerSprite(t *testing.T) {
+	sprites := []visibleSprite{
+		{x: 0, y: 0, width: 8, height: 8},
+		{x: 8, y: 0, width: 8, height: 8},
+		{x: 40, y: 40, width: 8, height: 8},
+	}
+	groups := groupSprites(sprites, false)
+	if len(groups) != len(sprites) {
+		t.Fatalf("groupSprites(per-sprite) = %d grupos, want %d", len(groups), len(sprites))
+	}
+	for i, group := range groups {
+		if len(group) != 1 {
+			t.Fatalf("grupo %d tiene %d sprites, want 1", i, len(group))
+		}
+	}
+}
+
+func TestGroupSpritesClustered(t *testing.T) {
+	sprites := []visibleSprite{
+		{x: 0, y: 0, width: 8, height: 8},
+		{x: 8, y: 0, width: 8, height: 8},
+		{x: 40, y: 40, width: 8, height: 8},
+	}
+	groups := groupSprites(sprites, true)
+	if len(groups) != 2 {
+		t.Fatalf("groupSprites(cluster) = %d grupos, want 2", len(groups))
+	}
+}

@@ -42,7 +42,7 @@ WHITE   := \033[1;37m
 RESET   := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test bench perf bench-ui bench-ui-matrix release release-complete audit android-docker clean-assets
+.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test bench perf bench-ui bench-ui-matrix verify-hd release release-complete audit android-docker clean-assets
 
 help:
 	@printf "\n$(BLUE)  ╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
@@ -51,6 +51,7 @@ help:
 	@printf "  $(GREEN)make run$(RESET)        Jugar ROM: $(CYAN)make run ROM=roms/sonic.sms$(RESET)\n"
 	@printf "  $(GREEN)make test$(RESET)       Ejecuta todos los tests de Go\n"
 	@printf "  $(GREEN)make bench$(RESET)      Microbenchmarks de CPU/VDP/PSG/máquina/vídeo (sin ROM externa)\n"
+	@printf "  $(GREEN)make verify-hd$(RESET)  Comprueba contaminación de tiles en un pack HD: make verify-hd ROM=...\n"
 	@printf "  $(GREEN)make perf$(RESET)       FPS de emulación headless: make perf ROM=... [PERF_FRAMES=3600]\n"
 	@printf "  $(GREEN)make bench-ui$(RESET)   FPS real HD+Remaster 2026: make bench-ui ROM=... [BENCH_WARMUP=3600]\n"
 	@printf "  $(GREEN)make bench-ui-matrix$(RESET) Matrix HD off/on × pixel/Remaster 2026\n"
@@ -81,6 +82,15 @@ endif
 
 test:
 	@go test ./...
+
+verify-hd:
+ifdef ROM
+	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
+	$(PY) tools/verify_hd.py "assets/$$ROM_BASE/hd" "assets/$$ROM_BASE/original"
+else
+	@printf "Uso: make verify-hd ROM='roms/juego.sms'\n"
+	@exit 2
+endif
 
 bench:
 	@printf "$(BLUE)==> Microbenchmarks (3 pasadas, con memoria)...$(RESET)\n"
