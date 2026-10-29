@@ -143,6 +143,8 @@ plano.
 | Variable | Por defecto | Efecto |
 | --- | --- | --- |
 | `PACK_SCALE` | `4` | Resolución final del pack (4× o 8×). |
+| `PACK_STYLE` | `cinematic` | Estilo del pack: `cinematic`, `modern-plus` o `modern-strong`. |
+| `HD_STYLE` | `modern-plus` | Estilo que activa `make select-hd` si hay varios packs generados. |
 | `BOT` | `alex-kidd` | Perfil de la extracción; `default` corre a la derecha y salta (Sonic y otros). |
 | `SONIC_ALL` | vacío | `1` recorre los 18 actos de Sonic 1 con el selector de nivel por RAM. |
 | `CASTLE_ALL` | vacío | `1` recorre los 6 mundos de Castle of Illusion entrando por las puertas. |

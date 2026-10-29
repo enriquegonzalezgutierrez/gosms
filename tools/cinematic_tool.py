@@ -27,6 +27,28 @@ def parse_light(value):
     return float(parts[0]), float(parts[1])
 
 
+STYLE_PRESETS = {
+    # Fiel al original: albedo plano, sin luz horneada.
+    "cinematic": {
+        "flat": True, "bevel": 1.8, "light": (315.0, 48.0), "noise": 0.03,
+        "ao": 0.0, "rim": 0.05, "specular": 0.10, "material": 0.0,
+        "contrast": 1.0, "saturation": 1.0, "warm": 0.0, "cool": 0.0,
+    },
+    # Volumen suave, materiales y luz de contorno sin perder la lectura del pixel art.
+    "modern-plus": {
+        "flat": False, "bevel": 2.2, "light": (315.0, 44.0), "noise": 0.035,
+        "ao": 0.12, "rim": 0.10, "specular": 0.12, "material": 0.03,
+        "contrast": 1.05, "saturation": 1.08, "warm": 0.010, "cool": 0.008,
+    },
+    # Mas contraste y relieve, para quien quiera un salto visual claro.
+    "modern-strong": {
+        "flat": False, "bevel": 2.8, "light": (315.0, 38.0), "noise": 0.045,
+        "ao": 0.20, "rim": 0.16, "specular": 0.18, "material": 0.05,
+        "contrast": 1.10, "saturation": 1.16, "warm": 0.014, "cool": 0.012,
+    },
+}
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Remasteriza en HD con paleta cinematografica (sin IA).",
@@ -39,10 +61,12 @@ def parse_args():
                         help="No regenera el fallback por tile")
     parser.add_argument("--skip-existing", action="store_true",
                         help="No rehace los PNG que ya existen")
-    parser.add_argument("--bevel", type=float, default=1.8, help="Radio del bisel en pixeles de juego")
-    parser.add_argument("--light", type=parse_light, default=(315.0, 48.0),
+    parser.add_argument("--style", choices=sorted(STYLE_PRESETS), default="cinematic",
+                        help="Estilo de remaster: cinematic, modern-plus o modern-strong")
+    parser.add_argument("--bevel", type=float, default=None, help="Radio del bisel en pixeles de juego")
+    parser.add_argument("--light", type=parse_light, default=None,
                         help="Luz como azimut,elevacion")
-    parser.add_argument("--noise", type=float, default=0.03, help="Amplitud del grano")
+    parser.add_argument("--noise", type=float, default=None, help="Amplitud del grano")
     parser.add_argument("--supersample", type=int, default=2,
                         help="Muestras por pixel de juego en la fase de color (1 desactiva)")
     parser.add_argument("--shaded", action="store_true",
@@ -57,9 +81,14 @@ def render_file(source, target, args, scale, grade, height_target=None):
         rgba = np.asarray(image.convert("RGBA"), dtype=np.uint8)
     started = time.monotonic()
     want_height = height_target is not None
+    style = args.style_params
     result = vector_tool.render(
-        rgba, scale, args.bevel, args.light, args.noise, None, args.supersample, grade,
-        flat=not args.shaded, want_height=want_height,
+        rgba, scale, style["bevel"], style["light"], style["noise"], None, args.supersample, grade,
+        flat=style["flat"] and not args.shaded, want_height=want_height,
+        ambient_occlusion=style["ao"], rim_strength=style["rim"],
+        specular_strength=style["specular"], material_noise=style["material"],
+        contrast=style["contrast"], saturation=style["saturation"],
+        warm=style["warm"], cool=style["cool"],
     )
     if want_height:
         image_out, height_out = result
@@ -76,6 +105,14 @@ def render_file(source, target, args, scale, grade, height_target=None):
 def main():
     args = parse_args()
     grade = grades.GRADES["cinematic"]
+    style = dict(STYLE_PRESETS[args.style])
+    if args.bevel is not None:
+        style["bevel"] = args.bevel
+    if args.light is not None:
+        style["light"] = args.light
+    if args.noise is not None:
+        style["noise"] = args.noise
+    args.style_params = style
 
     root = os.path.join("assets", args.rom_name)
     work = os.path.join(root, "remaster_workspace")
@@ -108,13 +145,13 @@ def main():
     # El empaquetador lee esta marca para graduar tambien el fondo del VDP.
     os.makedirs(work, exist_ok=True)
     with open(os.path.join(work, "grade.json"), "w", encoding="utf-8") as output:
-        json.dump({"name": "cinematic"}, output)
+        json.dump({"name": args.style, "style": style}, output)
 
     print(
-        f"Grado cinematografico: paleta de cine, albedo {'plano' if not args.shaded else 'horneado'} "
-        f"y alturas {'on' if args.heights else 'off'} a {scale}x "
-        f"(bisel {args.bevel}, luz {args.light[0]:.0f},{args.light[1]:.0f}, "
-        f"grano {args.noise}, supermuestreo {args.supersample})"
+        f"Estilo {args.style}: albedo {'plano' if style['flat'] and not args.shaded else 'horneado'}, "
+        f"alturas {'on' if args.heights else 'off'} a {scale}x "
+        f"(bisel {style['bevel']}, luz {style['light'][0]:.0f},{style['light'][1]:.0f}, "
+        f"grano {style['noise']}, AO {style['ao']}, supermuestreo {args.supersample})"
     )
     done = skipped = 0
     total = 0.0

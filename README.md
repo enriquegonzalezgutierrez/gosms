@@ -174,6 +174,18 @@ El acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí) ya es 
 
 El pack lleva el albedo y la paleta. El filtro **REMASTER 2026** añade bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. **MODERN+** y **MODERN+ STRONG** suben bloom, saturación y contraste para un acabado más de juego moderno. Para comparar sin el cielo, `cmd/preview` acepta `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva cielo y bloom.
 
+El estilo del propio pack se elige con `PACK_STYLE`:
+
+```bash
+make cinematic ROM="..." PACK_STYLE=modern-plus
+make pack ROM="..."
+# o modern-strong para más contraste y relieve
+make cinematic ROM="..." PACK_STYLE=modern-strong
+make pack ROM="..."
+```
+
+Si generas varios estilos, `make select-hd ROM="..." HD_STYLE=modern-plus` activa uno sin volver a vectorizar.
+
 La extracción agrupa bloques de fondo de 8×8 tiles para vectorizar escenarios completos en vez de tiles aislados. Usa `BG_GROUP=0` para desactivarlos o `BG_PROTECT=3` para proteger más filas del HUD.
 
 `make pack` informa de la cobertura por fuente (composites, fallback por tile, overrides manuales) y deja el detalle de los tiles compartidos en `hd/conflicts.json`.

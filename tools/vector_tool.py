@@ -147,7 +147,9 @@ def value_noise(logical_size, seed):
 
 
 def render(rgba, scale, bevel, light, noise, pad_edges, supersample=2, grade=None,
-           flat=False, want_height=False):
+           flat=False, want_height=False, ambient_occlusion=0.0, rim_strength=0.05,
+           specular_strength=0.10, material_noise=0.0, contrast=1.0, saturation=1.0,
+           warm=0.0, cool=0.0):
     """Devuelve la imagen remasterizada a ``scale`` x la rejilla logica."""
     block = detect_block_size(rgba)
     logical = rgba[::block, ::block]
@@ -242,12 +244,25 @@ def render(rgba, scale, bevel, light, noise, pad_edges, supersample=2, grade=Non
     # Oclusion muy leve: si pesa demasiado dibuja una linea oscura en cada
     # frontera de color y el dibujo parece un sticker con contorno negro.
     relief = np.clip(np.clip(first, 0.0, max(0.05, bevel)) / max(0.05, bevel), 0.0, 1.0)
-    ambient_occlusion = 0.92 + 0.08 * relief
+    color_ao = 0.92 + 0.08 * relief
 
     halfway = light_dir + np.array([0.0, 0.0, 1.0], dtype=np.float32)
     halfway /= np.linalg.norm(halfway)
-    specular = np.clip((normal * halfway).sum(axis=-1), 0.0, 1.0) ** 26 * 0.10
-    rim = (1.0 - np.clip(normal[..., 2], 0.0, 1.0)) ** 3 * 0.05
+    specular = np.clip((normal * halfway).sum(axis=-1), 0.0, 1.0) ** 26 * specular_strength
+    rim = (1.0 - np.clip(normal[..., 2], 0.0, 1.0)) ** 3 * rim_strength
+
+    # Sombra suave en el borde de la silueta (contacto), no en cada frontera de
+    # color: asi el objeto gana volumen sin dibujar un contorno en cada region.
+    if ambient_occlusion > 0:
+        edge_distance = np.maximum(silhouette, 0.0) * scale
+        edge_ao = 1.0 - ambient_occlusion * np.exp(-edge_distance / 2.0)
+    else:
+        edge_ao = np.ones_like(color_ao)
+
+    if material_noise > 0:
+        coarse = resize_float(value_noise((width, height), 5678), out_size)
+        fine = resize_float(value_noise((max(2, width * 2), max(2, height * 2)), 9012), out_size)
+        albedo = albedo * (1.0 + material_noise * ((coarse - 0.5) * 1.2 + (fine - 0.5) * 0.4))[..., np.newaxis]
 
     if noise > 0:
         grain = resize_float(value_noise((width, height), 1234), out_size)[..., np.newaxis]
@@ -256,13 +271,26 @@ def render(rgba, scale, bevel, light, noise, pad_edges, supersample=2, grade=Non
     if flat:
         # Sin luz horneada: el color es albedo puro y toda la iluminacion se
         # calcula en el shader a partir del mapa de altura.
-        rgb = np.clip(albedo, 0.0, 1.0) * 255.0
+        rgb = np.clip(albedo, 0.0, 1.0)
     else:
-        rgb = albedo * (shade * ambient_occlusion)[..., np.newaxis]
+        rgb = albedo * (shade * color_ao * edge_ao)[..., np.newaxis]
         rgb = rgb + specular[..., np.newaxis] + rim[..., np.newaxis]
-        rgb = np.clip(rgb, 0.0, 1.0) * 255.0
+        rgb = np.clip(rgb, 0.0, 1.0)
 
-    out = np.dstack((rgb, coverage * 255.0)).astype(np.uint8)
+    if saturation != 1.0 or contrast != 1.0 or warm != 0.0 or cool != 0.0:
+        luma = (0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2])[..., np.newaxis]
+        if saturation != 1.0:
+            rgb = luma + (rgb - luma) * saturation
+        if contrast != 1.0:
+            rgb = (rgb - 0.5) * contrast + 0.5
+        if warm != 0.0:
+            rgb[..., 0] += warm * (luma[..., 0] ** 2)
+            rgb[..., 1] += warm * 0.35 * (luma[..., 0] ** 2)
+        if cool != 0.0:
+            rgb[..., 2] += cool * ((1.0 - luma[..., 0]) ** 2)
+        rgb = np.clip(rgb, 0.0, 1.0)
+
+    out = np.dstack((rgb * 255.0, coverage * 255.0)).astype(np.uint8)
     image = Image.fromarray(out, mode="RGBA")
     if not want_height:
         return image
