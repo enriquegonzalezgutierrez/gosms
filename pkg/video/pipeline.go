@@ -32,6 +32,11 @@ const (
 	PresetCRT
 	// PresetMonochrome keeps the green-phosphor look.
 	PresetMonochrome
+	// PresetModernPlus pushes the modern grade: more bloom and contrast.
+	PresetModernPlus
+	// PresetModernStrong is the most dramatic grade, for users who want a
+	// clearly modern look rather than a faithful remaster.
+	PresetModernStrong
 )
 
 // Options controls the pipeline. Zero values are safe and disable the effect
@@ -106,7 +111,7 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		Lines:      192,
 	}
 	switch preset {
-	case PresetModern:
+	case PresetModern, PresetModernPlus, PresetModernStrong:
 		opts.Bloom = 0.30
 		opts.BloomThreshold = 0.68
 		opts.Exposure = 1.00
@@ -130,6 +135,28 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		// 1.0 mantiene el cielo y las zonas lisas con su color original.
 		opts.ReliefAmbient = 1.0
 		opts.ReliefDiffuse = 0.90
+		switch preset {
+		case PresetModernPlus:
+			opts.Bloom = 0.42
+			opts.BloomThreshold = 0.62
+			opts.Exposure = 1.03
+			opts.Saturation = 1.10
+			opts.Contrast = 1.06
+			opts.Gamma = 0.98
+			if !hd {
+				opts.Sharpness = 0.45
+			}
+		case PresetModernStrong:
+			opts.Bloom = 0.55
+			opts.BloomThreshold = 0.58
+			opts.Exposure = 1.06
+			opts.Saturation = 1.20
+			opts.Contrast = 1.12
+			opts.Gamma = 0.95
+			if !hd {
+				opts.Sharpness = 0.55
+			}
+		}
 		if hd {
 			// El arte vectorizado ya llega limpio. El sharpen sobre el escalado
 			// hacia vibrar el decorado al desplazarse y anadia otro pase

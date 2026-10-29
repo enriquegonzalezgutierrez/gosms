@@ -134,8 +134,9 @@ Para comparar sin el pase:
 go run ./cmd/preview -frames 900 -filter modern -hd -nosky -out plano.png "roms/juego.sms"
 ```
 
-El cielo se aplica solo con pack HD y los filtros **REMASTER 2026** o **CRT**;
-**SUAVIZADO** deja ver el albedo plano.
+El cielo se aplica solo con pack HD y los filtros **REMASTER 2026**,
+**MODERN+**, **MODERN+ STRONG** o **CRT**; **SUAVIZADO** deja ver el albedo
+plano.
 
 ## Ajustes
 
@@ -225,7 +226,8 @@ O dentro del juego:
 - **F10** alterna original y remaster.
 - **F12** o **H** abre la ayuda de controles (también el tutorial de primer arranque).
 - **F1** recorre los filtros de post-proceso. **REMASTER 2026** es el más
-  completo (cielo y bloom); **SUAVIZADO** es el más ligero.
+  completo (cielo y bloom); **MODERN+** y **MODERN+ STRONG** suben bloom,
+  saturación y contraste; **SUAVIZADO** es el más ligero.
 - **P** o **Enter** pulsa PAUSE/START (en Alex Kidd abre el mapa e inventario).
 - Al conectar un mando USB/Bluetooth, el menú muestra el modelo y el juego avisa
   con un OSD al conectar o desconectar.

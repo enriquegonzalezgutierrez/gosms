@@ -172,7 +172,7 @@ make run ROM="..."
 
 El acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí) ya es el que aplica `make remaster`. La paleta está en `tools/grades.py`: cambia un color allí, vuelve a lanzar `make cinematic` y `make pack`, y el emulador graduará también el fondo y los tiles sin remasterizar con `hd/palette.json`.
 
-El pack lleva el albedo y la paleta. El filtro **REMASTER 2026** añade bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. Para comparar sin el cielo, `cmd/preview` acepta `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva cielo y bloom.
+El pack lleva el albedo y la paleta. El filtro **REMASTER 2026** añade bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. **MODERN+** y **MODERN+ STRONG** suben bloom, saturación y contraste para un acabado más de juego moderno. Para comparar sin el cielo, `cmd/preview` acepta `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva cielo y bloom.
 
 La extracción agrupa bloques de fondo de 8×8 tiles para vectorizar escenarios completos en vez de tiles aislados. Usa `BG_GROUP=0` para desactivarlos o `BG_PROTECT=3` para proteger más filas del HUD.
 

@@ -111,6 +111,10 @@ func parsePreset(name string) (video.Preset, bool) {
 		return video.PresetSmooth, false
 	case "modern", "remaster":
 		return video.PresetModern, false
+	case "modern+", "modern-plus", "modernplus":
+		return video.PresetModernPlus, false
+	case "modern-strong", "modernstrong", "modern+strong":
+		return video.PresetModernStrong, false
 	case "crt", "scanlines":
 		return video.PresetCRT, name == "scanlines"
 	case "mono", "monochrome":

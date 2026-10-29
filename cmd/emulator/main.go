@@ -52,6 +52,8 @@ const (
 	VideoFilterSmooth
 	VideoFilterMonochrome
 	VideoFilterRemaster2026
+	VideoFilterModernPlus
+	VideoFilterModernStrong
 )
 
 var videoFilterNames = []string{
@@ -61,6 +63,8 @@ var videoFilterNames = []string{
 	"SUAVIZADO BILINEAL",
 	"FÓSFORO VERDE MONOCROMO",
 	"REMASTER 2026 (NÍTIDO + BLOOM)",
+	"MODERN+ (CINE DIGITAL)",
+	"MODERN+ STRONG (ALTO CONTRASTE)",
 }
 
 type AudioFilter int

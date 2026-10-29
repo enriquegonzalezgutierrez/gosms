@@ -46,7 +46,7 @@ En el juego, el mando usa D-pad/stick para mover y A/B como botones 1/2.
 
 ### Filtros de vídeo
 
-`Píxel perfect`, `CRT scanlines`, `Scale2x EPX`, `Suavizado`, `Fósforo verde`, `REMASTER 2026`.
+`Píxel perfect`, `CRT scanlines`, `Scale2x EPX`, `Suavizado`, `Fósforo verde`, `REMASTER 2026`, `MODERN+`, `MODERN+ STRONG`.
 
 ### Filtros de audio
 
