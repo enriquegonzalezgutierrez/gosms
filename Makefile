@@ -43,7 +43,7 @@ WHITE   := \033[1;37m
 RESET   := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test bench perf bench-ui bench-ui-matrix verify-hd select-hd check-music release release-complete audit android-docker clean-assets
+.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test bench perf bench-ui bench-ui-matrix verify-hd audit-alpha select-hd check-music release release-complete audit android-docker clean-assets
 
 help:
 	@printf "\n$(BLUE)  ╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
@@ -53,6 +53,7 @@ help:
 	@printf "  $(GREEN)make test$(RESET)       Ejecuta todos los tests de Go\n"
 	@printf "  $(GREEN)make bench$(RESET)      Microbenchmarks de CPU/VDP/PSG/máquina/vídeo (sin ROM externa)\n"
 	@printf "  $(GREEN)make verify-hd$(RESET)  Comprueba contaminación de tiles en un pack HD: make verify-hd ROM=...\n"
+	@printf "  $(GREEN)make audit-alpha$(RESET) Lista tiles que pierden o ganan transparencia: make audit-alpha ROM=...\n"
 	@printf "  $(GREEN)make select-hd$(RESET)  Activa un estilo de pack: make select-hd ROM=... HD_STYLE=modern-plus|cinematic\n"
 	@printf "  $(GREEN)make check-music$(RESET) Valida y convierte music/theme.ogg a Vorbis si hace falta\n"
 	@printf "  $(GREEN)make perf$(RESET)       FPS de emulación headless: make perf ROM=... [PERF_FRAMES=3600]\n"
@@ -99,6 +100,15 @@ ifdef ROM
 	printf "Pack HD activo: $(HD_STYLE)\n"
 else
 	@printf "Uso: make select-hd ROM='roms/juego.sms' HD_STYLE=modern-plus|cinematic\n"
+	@exit 2
+endif
+
+audit-alpha:
+ifdef ROM
+	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
+	$(PY) tools/audit_alpha.py "assets/$$ROM_BASE/hd" "assets/$$ROM_BASE/original"
+else
+	@printf "Uso: make audit-alpha ROM='roms/juego.sms'\n"
 	@exit 2
 endif
 
