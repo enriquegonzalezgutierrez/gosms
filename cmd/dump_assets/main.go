@@ -187,7 +187,19 @@ func spritesTouch(a, b visibleSprite) bool {
 		gap(a.y, a.y+a.height, b.y, b.y+b.height) <= 1
 }
 
-func makeSpriteObjects(sprites []visibleSprite, frame int, tiles []machine.TileManifest, tileImages map[string]*image.RGBA, objects map[string]*objectAccumulator) {
+// groupSprites decides which visible sprites become a single remaster object.
+// Clustering by touch is tempting for multi-sprite characters, but it also
+// merges unrelated sprites (a tree and Mickey, an enemy and a platform) and
+// bakes their pixels into shared tiles. Per-sprite objects are safer: they keep
+// each hardware sprite coherent and avoid cross-contamination.
+func groupSprites(sprites []visibleSprite, cluster bool) [][]visibleSprite {
+	if !cluster {
+		groups := make([][]visibleSprite, len(sprites))
+		for i, sprite := range sprites {
+			groups[i] = []visibleSprite{sprite}
+		}
+		return groups
+	}
 	parents := make([]int, len(sprites))
 	for i := range parents {
 		parents[i] = i
@@ -209,14 +221,20 @@ func makeSpriteObjects(sprites []visibleSprite, frame int, tiles []machine.TileM
 			}
 		}
 	}
-
-	groups := make(map[int][]visibleSprite)
+	byRoot := make(map[int][]visibleSprite)
 	for i, sprite := range sprites {
 		root := find(i)
-		groups[root] = append(groups[root], sprite)
+		byRoot[root] = append(byRoot[root], sprite)
 	}
+	groups := make([][]visibleSprite, 0, len(byRoot))
+	for _, group := range byRoot {
+		groups = append(groups, group)
+	}
+	return groups
+}
 
-	for _, group := range groups {
+func makeSpriteObjects(sprites []visibleSprite, frame int, tiles []machine.TileManifest, tileImages map[string]*image.RGBA, objects map[string]*objectAccumulator, cluster bool) {
+	for _, group := range groupSprites(sprites, cluster) {
 		minX, minY := group[0].x, group[0].y
 		maxX, maxY := minX+group[0].width, minY+group[0].height
 		var placements []machine.TileObjectPlacement
@@ -426,6 +444,7 @@ func main() {
 	bot := flag.String("bot", "default", "perfil de controles: default o alex-kidd")
 	sonic := flag.Bool("sonic", false, "recorre los 18 niveles de Sonic 1 usando el selector de nivel de RAM")
 	castle := flag.Bool("castle", false, "recorre los 6 mundos de Castle of Illusion entrando por las puertas del castillo")
+	spriteClusters := flag.Bool("sprite-clusters", false, "agrupa sprites que se tocan (puede mezclar objetos; desactivado por defecto)")
 	bgGroup := flag.Int("bg-group", 0, "tamaño en tiles de los bloques de fondo para remasterizar (0 = desactivado, 8 = 64x64 px)")
 	bgProtect := flag.Int("bg-protect", 0, "filas superiores de la name table que no se agrupan (HUD)")
 	flag.Parse()
@@ -636,7 +655,7 @@ func main() {
 							visible = append(visible, sprite)
 						}
 					}
-					makeSpriteObjects(visible, globalFrame, manifest, uniqueTiles, objects)
+					makeSpriteObjects(visible, globalFrame, manifest, uniqueTiles, objects, *spriteClusters)
 				}
 
 				if *bgGroup >= 2 && f%30 == 0 {
