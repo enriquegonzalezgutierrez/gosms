@@ -48,7 +48,7 @@ En el juego, el mando usa D-pad/stick para mover y A/B como botones 1/2.
 
 ### Filtros de vídeo
 
-`Píxel perfect`, `CRT scanlines`, `Scale2x EPX`, `Suavizado`, `Fósforo verde`, `REMASTER 2026`, `MODERN+`, `MODERN+ STRONG`, `MODERN+ PARALLAX`.
+`Píxel perfect`, `CRT scanlines`, `Scale2x EPX`, `Suavizado`, `Fósforo verde`, `REMASTER 2026`, `MODERN+`, `MODERN+ PARALLAX`.
 
 La música de fondo es opcional: si existe `assets/<ROM>/music/theme.ogg` (Ogg **Vorbis**, no Opus), se reproduce en bucle y silencia los canales de tono del PSG para no duplicar la música original; los efectos de ruido siguen sonando. `F6` o `M` la activa o desactiva. Usa `-music-mix` si quieres escuchar ambos. Si el OGG no es Vorbis, se convierte automáticamente con `ffmpeg`.
 

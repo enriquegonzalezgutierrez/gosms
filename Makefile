@@ -53,7 +53,7 @@ help:
 	@printf "  $(GREEN)make test$(RESET)       Ejecuta todos los tests de Go\n"
 	@printf "  $(GREEN)make bench$(RESET)      Microbenchmarks de CPU/VDP/PSG/máquina/vídeo (sin ROM externa)\n"
 	@printf "  $(GREEN)make verify-hd$(RESET)  Comprueba contaminación de tiles en un pack HD: make verify-hd ROM=...\n"
-	@printf "  $(GREEN)make select-hd$(RESET)  Activa un estilo de pack: make select-hd ROM=... HD_STYLE=modern-plus|modern-strong\n"
+	@printf "  $(GREEN)make select-hd$(RESET)  Activa un estilo de pack: make select-hd ROM=... HD_STYLE=modern-plus|cinematic\n"
 	@printf "  $(GREEN)make check-music$(RESET) Valida y convierte music/theme.ogg a Vorbis si hace falta\n"
 	@printf "  $(GREEN)make perf$(RESET)       FPS de emulación headless: make perf ROM=... [PERF_FRAMES=3600]\n"
 	@printf "  $(GREEN)make bench-ui$(RESET)   FPS real HD+Remaster 2026: make bench-ui ROM=... [BENCH_WARMUP=3600]\n"
@@ -63,7 +63,7 @@ help:
 	@printf "                              $(CYAN)CASTLE_ALL=1$(RESET) recorre los 6 mundos de Castle of Illusion\n"
 	@printf "  $(GREEN)make remaster$(RESET)  Borra, extrae, remasteriza en cinematográfico y empaqueta una ROM\n"
 	@printf "  $(GREEN)make unpack$(RESET)     Prepara composites por objeto en remaster_workspace/\n"
-	@printf "  $(GREEN)make cinematic$(RESET)  Remasteriza todo el catálogo en HD (PACK_STYLE=cinematic|modern-plus|modern-strong)\n"
+	@printf "  $(GREEN)make cinematic$(RESET)  Remasteriza todo el catálogo en HD (PACK_STYLE=cinematic|modern-plus)\n"
 	@printf "  $(GREEN)make pack$(RESET)       Empaqueta los objetos remasterizados (misma PACK_SCALE que el vectorizado)\n"
 	@printf "  $(GREEN)make preview$(RESET)    Renderiza un frame: make preview ROM=... [PREVIEW_FILTER=modern] [PREVIEW_HD=true]\n"
 	@printf "  $(GREEN)make setup$(RESET)      Crea .venv-remaster con numpy (opcional, acelera el vectorizado)\n"
@@ -98,7 +98,7 @@ ifdef ROM
 	cp -a "assets/$$ROM_BASE/hd-$(HD_STYLE)" "assets/$$ROM_BASE/hd"; \
 	printf "Pack HD activo: $(HD_STYLE)\n"
 else
-	@printf "Uso: make select-hd ROM='roms/juego.sms' HD_STYLE=modern-plus|modern-strong\n"
+	@printf "Uso: make select-hd ROM='roms/juego.sms' HD_STYLE=modern-plus|cinematic\n"
 	@exit 2
 endif
 
@@ -235,7 +235,7 @@ ifdef ROM
 	if [ "$(CINE_HEIGHTS)" = "0" ]; then set -- "$$@" --no-heights; fi; \
 	GOSMS_SCALE=$(PACK_SCALE) PYTHONUNBUFFERED=1 $(PY) tools/cinematic_tool.py "$$@"
 else
-	@printf "Uso: make cinematic ROM='roms/juego.sms' [PACK_SCALE=4] [PACK_STYLE=cinematic|modern-plus|modern-strong] [CINE_MATCH=sprite_] [CINE_ONLY=id] [CINE_LIMIT=0] [CINE_SKIP=0]\n"
+	@printf "Uso: make cinematic ROM='roms/juego.sms' [PACK_SCALE=4] [PACK_STYLE=cinematic|modern-plus] [CINE_MATCH=sprite_] [CINE_ONLY=id] [CINE_LIMIT=0] [CINE_SKIP=0]\n"
 	@exit 2
 endif
 

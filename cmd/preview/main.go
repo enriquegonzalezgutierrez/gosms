@@ -120,8 +120,6 @@ func parsePreset(name string) (video.Preset, bool) {
 		return video.PresetModern, false
 	case "modern+", "modern-plus", "modernplus":
 		return video.PresetModernPlus, false
-	case "modern-strong", "modernstrong", "modern+strong":
-		return video.PresetModernStrong, false
 	case "modern-parallax", "modernparallax", "parallax":
 		return video.PresetModernPlus, false
 	case "crt", "scanlines":
@@ -285,16 +283,30 @@ func main() {
 	opts.HeightLit = 0
 	opts.Relief = 0
 	if !*noSky && (preset == video.PresetModern || preset == video.PresetModernPlus ||
-		preset == video.PresetModernStrong || preset == video.PresetCRT) {
-		var c color.RGBA
+		preset == video.PresetCRT) {
+		raw := decodeColorVDP(m.VDP.CRAM[16+int(m.VDP.Reg[7]&0x0F)])
+		c := raw
 		if *hd && machine.HD != nil && machine.HD.Active {
 			c = machine.HD.Backdrop(m.VDP)
-		} else {
-			c = decodeColorVDP(m.VDP.CRAM[16+int(m.VDP.Reg[7]&0x0F)])
 		}
-		if machine.IsSkyColor(c) {
+		if !machine.IsSkyColor(c) && !machine.IsSkyColor(raw) {
+			for i := 0; i < len(m.VDP.CRAM); i++ {
+				cc := decodeColorVDP(m.VDP.CRAM[i])
+				if machine.IsSkyColor(cc) {
+					raw = cc
+					if *hd && machine.HD != nil && machine.HD.Active {
+						c = machine.HD.GradeColor(cc)
+					} else {
+						c = cc
+					}
+					break
+				}
+			}
+		}
+		if machine.IsSkyColor(c) || machine.IsSkyColor(raw) {
 			opts.Sky = true
 			opts.SkyColor = [3]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255}
+			opts.SkyColor2 = [3]float32{float32(raw.R) / 255, float32(raw.G) / 255, float32(raw.B) / 255}
 		}
 	}
 	if *parallax || *filter == "modern-parallax" || *filter == "modernparallax" || *filter == "parallax" {

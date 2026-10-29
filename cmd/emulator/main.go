@@ -56,7 +56,6 @@ const (
 	VideoFilterMonochrome
 	VideoFilterRemaster2026
 	VideoFilterModernPlus
-	VideoFilterModernStrong
 	VideoFilterModernParallax
 )
 
@@ -68,7 +67,6 @@ var videoFilterNames = []string{
 	"FÓSFORO VERDE MONOCROMO",
 	"REMASTER 2026 (NÍTIDO + BLOOM)",
 	"MODERN+ (CINE DIGITAL)",
-	"MODERN+ STRONG (ALTO CONTRASTE)",
 	"MODERN+ PARALLAX (FONDO 2.5D)",
 }
 

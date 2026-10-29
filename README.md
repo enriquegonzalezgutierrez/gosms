@@ -136,6 +136,22 @@ Misma captura y mismo frame de juego, sin menús. La columna derecha usa **F10**
 |---|---|
 | <img src="docs/media/remaster/castle-original.png" width="480" alt="Castle of Illusion original"> | <img src="docs/media/remaster/castle-remaster.png" width="480" alt="Castle of Illusion con F10 y Remaster 2026"> |
 
+### Parallax 2.5
+
+Mismo frame, con **F10** y el filtro **MODERN+ PARALLAX**: cielo procedural con nubes, sol y montañas en varias capas.
+
+**Alex Kidd in Miracle World**
+
+| Original | F10 + Modern+ Parallax |
+|---|---|
+| <img src="docs/media/remaster/alex-kidd-original.png" width="480" alt="Alex Kidd original"> | <img src="docs/media/remaster/alex-kidd-parallax.png" width="480" alt="Alex Kidd con parallax 2.5"> |
+
+**Castle of Illusion**
+
+| Original | F10 + Modern+ Parallax |
+|---|---|
+| <img src="docs/media/remaster/castle-original.png" width="480" alt="Castle of Illusion original"> | <img src="docs/media/remaster/castle-parallax.png" width="480" alt="Castle of Illusion con parallax 2.5"> |
+
 Para Alex Kidd, un solo comando lo hace todo (borra, extrae, vectoriza y empaqueta):
 
 ```bash
@@ -174,15 +190,12 @@ make run ROM="..."
 
 El acabado de cine (pelo castaño, piel tostada, blanco hueso y carmesí) ya es el que aplica `make remaster`. La paleta está en `tools/grades.py`: cambia un color allí, vuelve a lanzar `make cinematic` y `make pack`, y el emulador graduará también el fondo y los tiles sin remasterizar con `hd/palette.json`.
 
-El pack lleva el albedo y la paleta. El filtro **REMASTER 2026** añade bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. **MODERN+** y **MODERN+ STRONG** suben bloom, saturación y contraste para un acabado más de juego moderno. Para comparar sin el cielo, `cmd/preview` acepta `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva cielo y bloom.
+El pack lleva el albedo y la paleta. El filtro **REMASTER 2026** añade bloom y tone mapping, sustituye el azul plano del cielo por un degradado con halo de sol y **F10** compara con el original. **MODERN+** sube bloom, saturación y contraste; **MODERN+ PARALLAX** añade el cielo procedural con nubes y montañas. Para comparar sin el cielo, `cmd/preview` acepta `-nosky`. En equipos modestos, **SUAVIZADO** es el modo ligero: desactiva cielo y bloom.
 
 El estilo del propio pack se elige con `PACK_STYLE`:
 
 ```bash
 make cinematic ROM="..." PACK_STYLE=modern-plus
-make pack ROM="..."
-# o modern-strong para más contraste y relieve
-make cinematic ROM="..." PACK_STYLE=modern-strong
 make pack ROM="..."
 ```
 
@@ -192,11 +205,10 @@ Si generas varios estilos, `make select-hd ROM="..." HD_STYLE=modern-plus` activ
 
 - **`cinematic`**: albedo plano y fiel al original. Es el estilo por defecto.
 - **`modern-plus`**: sprites y objetos aislados con oclusión ambiental, materiales, rim light y grading moderado.
-- **`modern-strong`**: más contraste, relieve y saturación.
 
-Los **fondos se mantienen planos a propósito**: iluminar cada bloque por separado crea costuras visibles en el mosaico. El volumen moderno se reserva a sprites y objetos aislados, y los filtros **MODERN+ / MODERN+ STRONG** añaden el grading global encima del pack.
+Los **fondos se mantienen planos a propósito**: iluminar cada bloque por separado crea costuras visibles en el mosaico. El volumen moderno se reserva a sprites y objetos aislados, y los filtros **MODERN+ / MODERN+ PARALLAX** añaden el grading y el cielo procedural encima del pack.
 
-> **F1** recorre los 9 filtros de vídeo: Píxel Perfect, CRT, EPX, Suavizado, Fósforo, Remaster 2026, Modern+, Modern+ Strong y Modern+ Parallax.
+> **F1** recorre los 8 filtros de vídeo: Píxel Perfect, CRT, EPX, Suavizado, Fósforo, Remaster 2026, Modern+ y Modern+ Parallax.
 
 ### Música de fondo opcional
 

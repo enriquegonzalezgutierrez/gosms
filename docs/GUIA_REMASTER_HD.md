@@ -135,7 +135,7 @@ go run ./cmd/preview -frames 900 -filter modern -hd -nosky -out plano.png "roms/
 ```
 
 El cielo se aplica solo con pack HD y los filtros **REMASTER 2026**,
-**MODERN+**, **MODERN+ STRONG**, **MODERN+ PARALLAX** o **CRT**; **SUAVIZADO**
+**MODERN+**, **MODERN+ PARALLAX** o **CRT**; **SUAVIZADO**
 deja ver el albedo plano.
 
 ## Ajustes
@@ -143,7 +143,7 @@ deja ver el albedo plano.
 | Variable | Por defecto | Efecto |
 | --- | --- | --- |
 | `PACK_SCALE` | `4` | Resolución final del pack (4× o 8×). |
-| `PACK_STYLE` | `cinematic` | Estilo del pack: `cinematic`, `modern-plus` o `modern-strong`. |
+| `PACK_STYLE` | `cinematic` | Estilo del pack: `cinematic` o `modern-plus`. |
 | `HD_STYLE` | `modern-plus` | Estilo que activa `make select-hd` si hay varios packs generados. |
 | `BOT` | `alex-kidd` | Perfil de la extracción; `default` corre a la derecha y salta (Sonic y otros). |
 | `SONIC_ALL` | vacío | `1` recorre los 18 actos de Sonic 1 con el selector de nivel por RAM. |
@@ -194,7 +194,6 @@ comando es todo lo necesario para probar otra dirección.
 | --- | --- |
 | `cinematic` | Albedo plano, fiel al original. Es el valor por defecto. |
 | `modern-plus` | Sprites y objetos aislados con AO, materiales, rim light y grading moderado. |
-| `modern-strong` | Más contraste, relieve y saturación. |
 
 ```bash
 make cinematic ROM="..." PACK_STYLE=modern-plus
@@ -204,8 +203,8 @@ make select-hd ROM="..." HD_STYLE=modern-plus
 
 Los **fondos se mantienen planos** en los estilos modernos: iluminar cada bloque
 por separado produce costuras visibles en el mosaico. El volumen se aplica a
-sprites y objetos aislados, y los filtros **MODERN+ / MODERN+ STRONG** añaden el
-grading global desde el emulador.
+sprites y objetos aislados, y los filtros **MODERN+ / MODERN+ PARALLAX** añaden el
+grading y el cielo procedural desde el emulador.
 
 La paleta del pack siempre usa el grado `cinematic`, incluso en los estilos
 modernos. Si se escribe el nombre del estilo en `grade.json`, el fondo del VDP
@@ -257,8 +256,8 @@ O dentro del juego:
 - **F10** alterna original y remaster.
 - **F12** o **H** abre la ayuda de controles (también el tutorial de primer arranque).
 - **F1** recorre los filtros de post-proceso. **REMASTER 2026** es el más
-  completo (cielo y bloom); **MODERN+** y **MODERN+ STRONG** suben bloom,
-  saturación y contraste; **MODERN+ PARALLAX** añade nubes y montañas
+  completo (cielo y bloom); **MODERN+** sube bloom, saturación y contraste;
+  **MODERN+ PARALLAX** añade nubes y montañas
   procedurales con parallax; **SUAVIZADO** es el más ligero.
 - **F6** o **M** activa o desactiva la música de fondo opcional.
 - **F3 / F4** guardan y cargan partida rápida; **F5** hace una captura.

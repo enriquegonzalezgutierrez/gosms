@@ -40,7 +40,6 @@ func BenchmarkDraw(b *testing.B) {
 		{"smooth", PresetSmooth},
 		{"modern", PresetModern},
 		{"modern+", PresetModernPlus},
-		{"modern-strong", PresetModernStrong},
 		{"crt", PresetCRT},
 		{"mono", PresetMonochrome},
 	} {
@@ -58,7 +57,6 @@ func BenchmarkDrawHD(b *testing.B) {
 		{"pixel", PresetPixelPerfect},
 		{"modern", PresetModern},
 		{"modern+", PresetModernPlus},
-		{"modern-strong", PresetModernStrong},
 		{"crt", PresetCRT},
 	} {
 		b.Run(preset.name, func(b *testing.B) {

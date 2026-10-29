@@ -5,7 +5,6 @@ package main
 
 import (
 	"image"
-	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
@@ -134,8 +133,6 @@ func (g *game) pipelineOptions() video.Options {
 		preset = video.PresetModern
 	case VideoFilterModernPlus:
 		preset = video.PresetModernPlus
-	case VideoFilterModernStrong:
-		preset = video.PresetModernStrong
 	case VideoFilterModernParallax:
 		preset = video.PresetModernPlus
 	default:
@@ -146,18 +143,32 @@ func (g *game) pipelineOptions() video.Options {
 	opts.HeightLit = 0
 	opts.Relief = 0
 	if preset == video.PresetModern || preset == video.PresetModernPlus ||
-		preset == video.PresetModernStrong || preset == video.PresetCRT {
+		preset == video.PresetCRT {
 		// El cielo/parallax no depende del pack HD: tambien debe funcionar con
 		// F10 desactivado sobre el frame nativo.
-		var c color.RGBA
+		raw := decodeColorVDP(g.m.VDP.CRAM[16+int(g.m.VDP.Reg[7]&0x0F)])
+		c := raw
 		if g.hdMode && machine.HD != nil && machine.HD.Active {
 			c = machine.HD.Backdrop(g.m.VDP)
-		} else {
-			c = decodeColorVDP(g.m.VDP.CRAM[16+int(g.m.VDP.Reg[7]&0x0F)])
 		}
-		if machine.IsSkyColor(c) {
+		if !machine.IsSkyColor(c) && !machine.IsSkyColor(raw) {
+			for i := 0; i < len(g.m.VDP.CRAM); i++ {
+				cc := decodeColorVDP(g.m.VDP.CRAM[i])
+				if machine.IsSkyColor(cc) {
+					raw = cc
+					if g.hdMode && machine.HD != nil && machine.HD.Active {
+						c = machine.HD.GradeColor(cc)
+					} else {
+						c = cc
+					}
+					break
+				}
+			}
+		}
+		if machine.IsSkyColor(c) || machine.IsSkyColor(raw) {
 			opts.Sky = true
 			opts.SkyColor = [3]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255}
+			opts.SkyColor2 = [3]float32{float32(raw.R) / 255, float32(raw.G) / 255, float32(raw.B) / 255}
 		}
 	}
 	if g.videoFilter == VideoFilterModernParallax {

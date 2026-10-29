@@ -40,12 +40,6 @@ STYLE_PRESETS = {
         "ao": 0.12, "rim": 0.10, "specular": 0.12, "material": 0.03,
         "contrast": 1.05, "saturation": 1.08, "warm": 0.010, "cool": 0.008,
     },
-    # Mas contraste y relieve, para quien quiera un salto visual claro.
-    "modern-strong": {
-        "flat": False, "bevel": 2.8, "light": (315.0, 38.0), "noise": 0.045,
-        "ao": 0.20, "rim": 0.16, "specular": 0.18, "material": 0.05,
-        "contrast": 1.10, "saturation": 1.16, "warm": 0.014, "cool": 0.012,
-    },
 }
 
 
@@ -62,7 +56,7 @@ def parse_args():
     parser.add_argument("--skip-existing", action="store_true",
                         help="No rehace los PNG que ya existen")
     parser.add_argument("--style", choices=sorted(STYLE_PRESETS), default="cinematic",
-                        help="Estilo de remaster: cinematic, modern-plus o modern-strong")
+                        help="Estilo de remaster: cinematic o modern-plus")
     parser.add_argument("--bevel", type=float, default=None, help="Radio del bisel en pixeles de juego")
     parser.add_argument("--light", type=parse_light, default=None,
                         help="Luz como azimut,elevacion")

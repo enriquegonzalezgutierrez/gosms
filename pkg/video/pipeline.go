@@ -34,9 +34,6 @@ const (
 	PresetMonochrome
 	// PresetModernPlus pushes the modern grade: more bloom and contrast.
 	PresetModernPlus
-	// PresetModernStrong is the most dramatic grade, for users who want a
-	// clearly modern look rather than a faithful remaster.
-	PresetModernStrong
 )
 
 // Options controls the pipeline. Zero values are safe and disable the effect
@@ -65,8 +62,11 @@ type Options struct {
 
 	// Cielo moderno: sustituye el color plano del cielo por un degradado con
 	// halo de sol. SkyColor lo pone el front end a partir del fondo del VDP.
-	Sky        bool
-	SkyColor   [3]float32
+	Sky      bool
+	SkyColor [3]float32
+	// SkyColor2 cubre los juegos cuyo cielo no usa exactamente el color del
+	// backdrop graduado (por ejemplo, tiles de cielo sin remasterizar).
+	SkyColor2  [3]float32
 	SkyTop     [3]float32
 	SkyHorizon [3]float32
 	SkySun     [2]float32
@@ -104,6 +104,7 @@ func DefaultOptions(preset Preset, hd bool) Options {
 	opts := Options{
 		Preset:     preset,
 		HD:         hd,
+		SkyColor2:  [3]float32{-1, -1, -1},
 		SkyTop:     [3]float32{0.10, 0.24, 0.42},
 		SkyHorizon: [3]float32{0.38, 0.58, 0.72},
 		SkySun:     [2]float32{0.74, 0.20},
@@ -117,7 +118,7 @@ func DefaultOptions(preset Preset, hd bool) Options {
 		Lines:      192,
 	}
 	switch preset {
-	case PresetModern, PresetModernPlus, PresetModernStrong:
+	case PresetModern, PresetModernPlus:
 		opts.Bloom = 0.30
 		opts.BloomThreshold = 0.68
 		opts.Exposure = 1.00
@@ -151,16 +152,6 @@ func DefaultOptions(preset Preset, hd bool) Options {
 			opts.Gamma = 0.98
 			if !hd {
 				opts.Sharpness = 0.45
-			}
-		case PresetModernStrong:
-			opts.Bloom = 0.55
-			opts.BloomThreshold = 0.58
-			opts.Exposure = 1.06
-			opts.Saturation = 1.20
-			opts.Contrast = 1.12
-			opts.Gamma = 0.95
-			if !hd {
-				opts.Sharpness = 0.55
 			}
 		}
 		if hd {
@@ -476,6 +467,7 @@ func (p *Pipeline) Draw(dst, src *ebiten.Image, srcRect, dstRect image.Rectangle
 		"Dither":         opts.Dither,
 		"Sky":            skyValue(opts.Sky),
 		"SkyColor":       []float32{opts.SkyColor[0], opts.SkyColor[1], opts.SkyColor[2]},
+		"SkyColor2":      []float32{opts.SkyColor2[0], opts.SkyColor2[1], opts.SkyColor2[2]},
 		"TopColor":       []float32{opts.SkyTop[0], opts.SkyTop[1], opts.SkyTop[2]},
 		"HorizonColor":   []float32{opts.SkyHorizon[0], opts.SkyHorizon[1], opts.SkyHorizon[2]},
 		"Sun":            []float32{opts.SkySun[0], opts.SkySun[1]},

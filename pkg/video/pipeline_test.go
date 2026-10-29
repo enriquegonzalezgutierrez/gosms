@@ -30,11 +30,7 @@ func TestDefaultOptions(t *testing.T) {
 func TestModernPlusPresets(t *testing.T) {
 	modern := DefaultOptions(PresetModern, true)
 	plus := DefaultOptions(PresetModernPlus, true)
-	strong := DefaultOptions(PresetModernStrong, true)
 	if plus.Bloom <= modern.Bloom || plus.Saturation <= modern.Saturation || plus.Contrast <= modern.Contrast {
 		t.Fatalf("modern+ should push bloom/saturation/contrast: modern=%+v plus=%+v", modern, plus)
-	}
-	if strong.Bloom <= plus.Bloom || strong.Saturation <= plus.Saturation || strong.Contrast <= plus.Contrast {
-		t.Fatalf("modern+ strong should be stronger than modern+: plus=%+v strong=%+v", plus, strong)
 	}
 }

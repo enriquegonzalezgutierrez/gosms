@@ -12,6 +12,7 @@ var ToneMap float
 var Dither float
 var Sky float
 var SkyColor vec3
+var SkyColor2 vec3
 var TopColor vec3
 var HorizonColor vec3
 var Sun vec2
@@ -156,7 +157,11 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	// Cielo moderno, integrado aqui para no anadir otro pase full-screen.
 	// Solo sustituye el color plano exacto del cielo; el terreno y los sprites
 	// conservan su color.
-	if Sky > 0.5 && distance(base.rgb, SkyColor) < 0.06 {
+	skyMatch := distance(base.rgb, SkyColor) < 0.06
+	if SkyColor2.r >= 0.0 && distance(base.rgb, SkyColor2) < 0.06 {
+		skyMatch = true
+	}
+	if Sky > 0.5 && skyMatch {
 		size := imageSrc0Size()
 		t := clamp(src0Pos.y/size.y, 0.0, 1.0)
 		g := mix(TopColor, HorizonColor, pow(t, 1.25))
