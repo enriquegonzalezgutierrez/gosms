@@ -266,6 +266,9 @@ toca `hd/manifest.json` ni el resto de tiles.
 - Un `make pack` o `make select-hd` posterior sobrescribe el parche: guarda la
   imagen y vuelve a aplicarla si hace falta.
 
+Registro completo de la prueba con Gemini (prompts, comandos, resultado y
+limitaciones): [`PRUEBA_IA_ALEX.md`](PRUEBA_IA_ALEX.md).
+
 ## Bloques de fondo
 
 `make remaster` agrupa el fondo visible en bloques de 8×8 tiles (64×64 píxeles) y los guarda como `bg_...`. Vectorizar un bloque completo es mucho mejor que vectorizar tiles aislados, porque el SDF ve los bordes reales y no inventa contornos en cada unión.
