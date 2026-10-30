@@ -187,6 +187,94 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 	var bgLow []bgDrawItem
 	var bgHigh []bgDrawItem
 
+	// 1b. Overlays de objeto completo.
+	// Se busca el patron de tiles en el name table; si coincide, se dibuja la
+	// imagen entera y se marcan sus celdas para no repetir los tiles.
+	type overlayItem struct {
+		img          *ebiten.Image
+		drawX, drawY float64
+	}
+	var overlayDraws []overlayItem
+	var covered [28][32]bool
+	if len(hd.Overlays) > 0 {
+		var grid [28][32]string
+		for r := 0; r < 28; r++ {
+			for c := 0; c < 32; c++ {
+				off := (nameBase + r*64 + c*2) & 0x3FFF
+				entry := uint16(v.VRAM[(off+1)&0x3FFF])<<8 | uint16(v.VRAM[off])
+				tile := int(entry & 0x1FF)
+				po := 0
+				if entry&0x800 != 0 {
+					po = 16
+				}
+				pat := (tile * 32) & 0x3FFF
+				grid[r][c] = TileHash(v.VRAM[pat:pat+32], v.CRAM[po:po+16], false)
+			}
+		}
+		for _, ov := range hd.Overlays {
+			maxDX, maxDY := 0, 0
+			for _, p := range ov.Pattern {
+				if p.DX > maxDX {
+					maxDX = p.DX
+				}
+				if p.DY > maxDY {
+					maxDY = p.DY
+				}
+			}
+			if maxDX >= 32 || maxDY >= 28 || len(ov.Pattern) == 0 {
+				continue
+			}
+			for r0 := 0; r0+maxDY < 28; r0++ {
+				for c0 := 0; c0+maxDX < 32; c0++ {
+					match := true
+					for _, p := range ov.Pattern {
+						if grid[r0+p.DY][c0+p.DX] != p.Hash {
+							match = false
+							break
+						}
+					}
+					if !match {
+						continue
+					}
+					sx, ok := overlayScrollX(v, scrollY, r0, maxDY)
+					if !ok {
+						continue
+					}
+					overlap := false
+					for _, p := range ov.Pattern {
+						if covered[r0+p.DY][c0+p.DX] {
+							overlap = true
+							break
+						}
+					}
+					if overlap {
+						continue
+					}
+					for _, p := range ov.Pattern {
+						covered[r0+p.DY][c0+p.DX] = true
+					}
+					x := positiveMod(c0*8-sx, 256)
+					y := positiveMod(r0*8-scrollY, 224)
+					if y >= vdp.ScreenH {
+						continue
+					}
+					overlayDraws = append(overlayDraws, overlayItem{
+						img:   ov.Image,
+						drawX: destX + (float64(x)-cropOffset)*scale,
+						drawY: destY + float64(y)*scale,
+					})
+					if x+ov.Width > 256 {
+						overlayDraws = append(overlayDraws, overlayItem{
+							img:   ov.Image,
+							drawX: destX + (float64(x-256)-cropOffset)*scale,
+							drawY: destY + float64(y)*scale,
+						})
+					}
+				}
+			}
+		}
+	}
+
 	// 2. Fondo Normal y Prioritario
 	fineY := scrollY & 7
 	for r := -1; r < 25; r++ {
@@ -221,6 +309,9 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 
 			bgX := tileDrawX - sx
 			col := (bgX >> 3) & 0x1F
+			if covered[row][col] {
+				continue
+			}
 
 			off := (nameBase + row*64 + col*2) & 0x3FFF
 			entry := uint16(v.VRAM[(off+1)&0x3FFF])<<8 | uint16(v.VRAM[off])
@@ -303,6 +394,18 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 		if heightDst != nil && item.himg != nil {
 			heightDst.DrawImage(item.himg, op)
 		}
+	}
+
+	// Overlays de objeto completo, antes que los tiles normales.
+	for _, item := range overlayDraws {
+		op := &ebiten.DrawImageOptions{}
+		op.Filter = ebiten.FilterLinear
+		if hdScale == 1 {
+			op.Filter = ebiten.FilterNearest
+		}
+		op.GeoM.Scale(hdScale, hdScale)
+		op.GeoM.Translate(item.drawX, item.drawY)
+		screen.DrawImage(item.img, op)
 	}
 
 	// Capa 1: Fondo Normal y Prioritario completo. El prioritario se pinta
@@ -455,6 +558,40 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 
 	// 4. Máscara de recorte de bordes 4:3
 	clipViewport(screen, destX, destY, float64(viewW), float64(viewH))
+}
+
+// overlayScrollX devuelve el scroll horizontal comun a las filas visibles del
+// overlay. Si el juego usa scroll por linea y no coincide, el overlay se
+// descarta y se dibujan los tiles normales.
+func overlayScrollX(v *vdp.VDP, scrollY, row0, maxDY int) (int, bool) {
+	if !v.LineScrollValid {
+		return int(v.Reg[8]), true
+	}
+	sx := -1
+	for dy := 0; dy <= maxDY; dy++ {
+		y := positiveMod(row0*8+dy*8-scrollY, 224)
+		if y >= vdp.ScreenH {
+			continue
+		}
+		current := int(v.LineScrollX[y])
+		if sx == -1 {
+			sx = current
+		} else if current != sx {
+			return 0, false
+		}
+	}
+	if sx == -1 {
+		return int(v.Reg[8]), true
+	}
+	return sx, true
+}
+
+func positiveMod(value, modulus int) int {
+	result := value % modulus
+	if result < 0 {
+		result += modulus
+	}
+	return result
 }
 
 func clipViewport(screen *ebiten.Image, destX, destY, viewW, viewH float64) {

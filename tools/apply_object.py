@@ -75,12 +75,32 @@ def paste_with_gutter(sheet, tile, x, y, tile_size, padding):
         sheet.paste(tile.crop((sx, sy, sx + 1, sy + 1)).resize((padding, padding)), (x + px, y + py))
 
 
+def load_overlays(hd_dir, scale):
+    path = os.path.join(hd_dir, "overlays.json")
+    if os.path.exists(path):
+        document = load_json(path)
+    else:
+        document = {"version": 1, "scale": scale, "overlays": []}
+    document.setdefault("version", 1)
+    document.setdefault("scale", scale)
+    document.setdefault("overlays", [])
+    return document
+
+
+def save_overlays(hd_dir, document):
+    with open(os.path.join(hd_dir, "overlays.json"), "w", encoding="utf-8") as output:
+        json.dump(document, output, indent=2, ensure_ascii=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("asset_dir", help="carpeta assets/<ROM>")
-    parser.add_argument("object_id", help="id del objeto, por ejemplo bg_829741033466e0d9")
-    parser.add_argument("image", help="PNG con el resultado (Gemini, editor, etc.)")
+    parser.add_argument("object_id", help="id del objeto, por ejemplo bg_14b93b286febf2ee")
+    parser.add_argument("image", nargs="?", help="PNG con el resultado (Gemini, editor, etc.)")
     parser.add_argument("--no-backup", action="store_true", help="no crear spritesheet.png.bak")
+    parser.add_argument("--overlay", action="store_true",
+                        help="dibujar el objeto como una sola imagen, sin trocearlo en tiles")
+    parser.add_argument("--remove", action="store_true", help="quitar el overlay del objeto")
     args = parser.parse_args()
 
     hd_dir = os.path.join(args.asset_dir, "hd")
@@ -103,6 +123,23 @@ def main():
     height = max(item["y"] + 8 for item in placements)
     expected = (width * scale, height * scale)
 
+    if args.remove:
+        document = load_overlays(hd_dir, scale)
+        entry = next((item for item in document["overlays"] if item.get("id") == args.object_id), None)
+        if entry is None:
+            print("No habia overlay para ese objeto.")
+            return
+        document["overlays"].remove(entry)
+        save_overlays(hd_dir, document)
+        image_path = os.path.join(hd_dir, entry.get("image", ""))
+        if entry.get("image") and os.path.exists(image_path):
+            os.remove(image_path)
+        print(f"Overlay eliminado: {args.object_id}")
+        return
+
+    if not args.image:
+        parser.error("falta la imagen")
+
     image = Image.open(args.image).convert("RGBA")
     if image.size != expected:
         fitted = ImageOps.contain(image, expected, method=Image.Resampling.LANCZOS)
@@ -114,6 +151,35 @@ def main():
 
     alpha = reference_alpha(args.asset_dir, obj, width, height).resize(expected, Image.Resampling.NEAREST)
     image.putalpha(ImageChops.multiply(image.getchannel("A"), alpha))
+
+    if args.overlay:
+        overlay_dir = os.path.join(hd_dir, "overlays")
+        os.makedirs(overlay_dir, exist_ok=True)
+        target = os.path.join(overlay_dir, f"{args.object_id}.png")
+        image.save(target)
+        document = load_overlays(hd_dir, scale)
+        document["overlays"] = [item for item in document["overlays"]
+                                if item.get("id") != args.object_id]
+        by_index = {item["index"]: item for item in manifest["tiles"]}
+        pattern = []
+        seen = set()
+        for placement in placements:
+            dx, dy = placement["x"] // 8, placement["y"] // 8
+            if (dx, dy) in seen:
+                continue
+            seen.add((dx, dy))
+            pattern.append({"dx": dx, "dy": dy, "hash": by_index[placement["index"]]["hash"]})
+        document["overlays"].append({
+            "id": args.object_id,
+            "image": f"overlays/{args.object_id}.png",
+            "width": width,
+            "height": height,
+            "pattern": pattern,
+        })
+        save_overlays(hd_dir, document)
+        print(f"Overlay guardado: {target} ({len(pattern)} celdas, {width}x{height})")
+        print("Se dibuja como una sola imagen donde coincida el patron; spritesheet.png no se toca.")
+        return
 
     sheet_path = os.path.join(hd_dir, "spritesheet.png")
     if not os.path.exists(sheet_path):

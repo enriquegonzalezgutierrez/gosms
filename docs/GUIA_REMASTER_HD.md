@@ -259,6 +259,17 @@ silueta original (los píxeles transparentes de los sprites siguen siéndolo) y
 trocea el resultado en tiles de 8×8 que escribe en `hd/spritesheet.png`. No
 toca `hd/manifest.json` ni el resto de tiles.
 
+Si el objeto **reutiliza tiles** en varias posiciones, el troceado pierde
+detalle. En ese caso usa `--overlay`: guarda la imagen completa en
+`hd/overlays/` y añade su patrón a `hd/overlays.json`; el emulador dibuja la
+imagen entera cuando el patrón coincide en el name table, sin trocearla.
+
+```bash
+.venv-remaster/bin/python tools/apply_object.py "assets/<ROM>" <object_id> imagen.png --overlay
+```
+
+Para quitar el overlay: añade `--remove` en lugar de la imagen.
+
 - La primera vez guarda una copia del atlas en `hd/spritesheet.png.bak`.
 - Para volver atrás: `cp "assets/<ROM>/hd/spritesheet.png.bak" "assets/<ROM>/hd/spritesheet.png"`.
 - El cambio afecta a **todos** los usos de esos tiles, no solo al objeto.

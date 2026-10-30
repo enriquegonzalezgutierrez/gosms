@@ -89,6 +89,41 @@ PY
 
 ## Cómo aplicarlo al juego
 
+### Objeto completo (recomendado)
+
+Dibuja la imagen de Gemini **entera**, sin trocearla, allí donde aparece el
+patrón de tiles del objeto. Es la única forma de conservar el detalle de la
+imagen original cuando el objeto reutiliza tiles.
+
+```bash
+.venv-remaster/bin/python tools/apply_object.py \
+  "assets/Alex Kidd in Miracle World (UE) (V1.1) [!]" \
+  bg_14b93b286febf2ee \
+  dist/ai-test/salida/bloque-alex-01.png --overlay
+```
+
+La herramienta:
+
+1. Adapta la imagen al lienzo del objeto (64×64 lógicos a 4× = 256×256).
+2. La recorta con la silueta original.
+3. La guarda en `hd/overlays/<id>.png`.
+4. Añade a `hd/overlays.json` el patrón de 64 celdas (posición + hash del tile).
+5. No toca `hd/spritesheet.png`.
+
+El emulador busca ese patrón en el name table; cuando coincide, dibuja la
+imagen completa y se salta los tiles de esas celdas. Si el patrón no aparece,
+no cambia nada.
+
+Para quitarlo:
+
+```bash
+.venv-remaster/bin/python tools/apply_object.py \
+  "assets/Alex Kidd in Miracle World (UE) (V1.1) [!]" \
+  bg_14b93b286febf2ee --remove
+```
+
+### Método por tiles (solo si el objeto no reutiliza tiles)
+
 ```bash
 .venv-remaster/bin/python tools/apply_object.py \
   "assets/Alex Kidd in Miracle World (UE) (V1.1) [!]" \
@@ -96,13 +131,14 @@ PY
   dist/ai-test/salida/bloque-alex-01.png
 ```
 
-La herramienta:
-
-1. Adapta la imagen al lienzo del objeto (64×64 lógicos a 4× = 256×256).
+1. Adapta la imagen al lienzo del objeto.
 2. La recorta con la silueta original.
 3. La trocea en los 8 tiles únicos del bloque.
 4. Escribe esos tiles en `hd/spritesheet.png`.
 5. La primera vez guarda `hd/spritesheet.png.bak`.
+
+Con un bloque que reutiliza tiles, este método pierde el detalle: el juego solo
+puede mostrar 8 piezas, no las 64 posiciones de la imagen.
 
 ## Cómo verlo
 
@@ -123,18 +159,18 @@ cp "assets/Alex Kidd in Miracle World (UE) (V1.1) [!]/hd/spritesheet.png.bak" \
 
 ## Resultado observado
 
-- El bloque aislado queda muy bien: piedra con grano, biseles, oclusión
-  ambiental y hierba con volumen. Es el look cinematográfico que se buscaba.
-- En el nivel **mezcla dos estilos**: el bloque nuevo es beige con juntas
-  negras y hierba realista; el resto del escenario sigue siendo marrón con
-  contorno vectorial. Se ven transiciones duras y líneas negras.
-- El bloque original reutiliza **8 tiles en 64 posiciones**. La imagen de
-  Gemini no es periódica, así que 56 posiciones tienen contenido distinto al
-  tile que les toca. La herramienta usa la primera aparición y avisa:
-  `56 posiciones comparten tile con otra distinta`.
-- Consecuencia: el bloque se repite con el patrón de 8 tiles, no con el dibujo
-  completo de Gemini. Para que sea fiel habría que cambiar el mapa de tiles o
-  generar una imagen exactamente periódica.
+- La imagen de Gemini está perfecta: piedra con grano, biseles, oclusión
+  ambiental y hierba con volumen.
+- El **método por tiles** la estropea: el bloque usa 8 tiles reutilizados en 64
+  posiciones, así que el juego solo puede mostrar un mosaico de 8 piezas. La
+  comparación `bloque-mosaico-vs-ia.png` lo deja claro.
+- El **overlay** dibuja la imagen completa y el bloque se ve exactamente como
+  Gemini (`bloque-alex-overlay.png`). Ese es el método bueno.
+- Queda el choque de estilo con el resto del nivel: el bloque nuevo es beige
+  con juntas negras y el escenario sigue siendo marrón. Un solo objeto no puede
+  cambiar el nivel entero.
+- El parche por tiles se revirtió antes de aplicar el overlay: `spritesheet.png`
+  volvió a su estado original y el bloque se dibuja solo desde `overlays/`.
 
 ## Periodicidad (para una segunda iteración)
 
@@ -166,6 +202,7 @@ y la franja superior de 16 píxeles es distinta. Mantén esa periodicidad.
 
 ## Estado
 
-- Parche aplicado en `assets/Alex Kidd.../hd/spritesheet.png`.
-- Copia limpia en `hd/spritesheet.png.bak`.
-- Herramienta y este documento en Git.
+- Overlay aplicado: `hd/overlays/bg_14b93b286febf2ee.png` + `hd/overlays.json`.
+- `hd/spritesheet.png` está limpio (el parche por tiles se revirtió).
+- `hd-cinematic` y `hd-modern-plus` intactos.
+- Herramienta, soporte de overlays en el renderer y este documento en Git.

@@ -142,6 +142,37 @@ func TestDrawLayerPrioritySmoke(t *testing.T) {
 	}
 }
 
+func TestPositiveMod(t *testing.T) {
+	cases := []struct{ value, modulus, want int }{
+		{-1, 256, 255},
+		{0, 256, 0},
+		{257, 256, 1},
+		{-257, 256, 255},
+		{-117, 224, 107},
+	}
+	for _, c := range cases {
+		if got := positiveMod(c.value, c.modulus); got != c.want {
+			t.Fatalf("positiveMod(%d, %d) = %d, se esperaba %d", c.value, c.modulus, got, c.want)
+		}
+	}
+}
+
+func TestOverlayScrollX(t *testing.T) {
+	v := vdp.New()
+	v.LineScrollValid = true
+	for i := range v.LineScrollX {
+		v.LineScrollX[i] = 3
+	}
+	if sx, ok := overlayScrollX(v, 0, 0, 7); !ok || sx != 3 {
+		t.Fatalf("scroll uniforme: sx=%d ok=%v", sx, ok)
+	}
+	// Una fila visible con otro scroll invalida el overlay.
+	v.LineScrollX[8] = 5
+	if _, ok := overlayScrollX(v, 0, 0, 7); ok {
+		t.Fatal("un scroll por linea distinto deberia descartar el overlay")
+	}
+}
+
 func TestDrawLayerSmoke(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {

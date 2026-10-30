@@ -97,6 +97,40 @@ type HDPackDocument struct {
 	Scenes      []TileSceneManifest  `json:"scenes,omitempty"`
 }
 
+// HDOverlayPattern describe una celda del patron de un objeto: su posicion en
+// celdas de 8x8 y el hash del tile que debe haber en el name table.
+type HDOverlayPattern struct {
+	DX   int    `json:"dx"`
+	DY   int    `json:"dy"`
+	Hash string `json:"hash"`
+}
+
+// HDOverlayEntry es un objeto que se dibuja como una sola imagen en vez de
+// tile a tile. Sirve para bloques cuyos tiles se reutilizan y no pueden
+// conservar el detalle de una imagen completa.
+type HDOverlayEntry struct {
+	ID      string             `json:"id"`
+	Image   string             `json:"image"`
+	Width   int                `json:"width"`
+	Height  int                `json:"height"`
+	Pattern []HDOverlayPattern `json:"pattern"`
+}
+
+type HDOverlayDocument struct {
+	Version  int              `json:"version"`
+	Scale    int              `json:"scale"`
+	Overlays []HDOverlayEntry `json:"overlays"`
+}
+
+// HDOverlay es la version cargada en memoria de HDOverlayEntry.
+type HDOverlay struct {
+	ID      string
+	Image   *ebiten.Image
+	Width   int
+	Height  int
+	Pattern []HDOverlayPattern
+}
+
 // HDPalette es el mapa de color de los 64 registros CRAM ya graduados. El
 // fondo del VDP se pinta con un registro, no con un tile, asi que necesita su
 // propia traduccion para que el cielo siga la paleta del pack.
@@ -140,7 +174,12 @@ type HDRenderer struct {
 	// los sprites detras de sus huecos, como hace el VDP nativo.
 	PriorityMap  map[string]*ebiten.Image
 	PriorityMask map[string]*ebiten.Image
-	Scale        int
+
+	// Overlays son objetos que se dibujan como una imagen completa sobre el
+	// name table cuando su patron de tiles coincide.
+	Overlays []HDOverlay
+
+	Scale int
 }
 
 var HD *HDRenderer
@@ -485,6 +524,7 @@ func loadHDLegacy(hdDir string) {
 		scale = 1
 	}
 	hd.Scale = scale
+	hd.Overlays = loadHDOverlays(hdDir)
 
 	cellSize := 12 * scale
 	padding := 2 * scale
@@ -503,6 +543,45 @@ func loadHDLegacy(hdDir string) {
 
 	HD = hd
 	fmt.Printf("\033[1;32m🌟 GOSMS HD ENGINE:\033[0m Pack v1 cargado -> %d texturas (Escala %dx)\n", len(hd.TileMap), hd.Scale)
+}
+
+// loadHDOverlays carga las imagenes de objeto completo declaradas en
+// overlays.json. Si el archivo no existe, el pack funciona igual que antes.
+func loadHDOverlays(hdDir string) []HDOverlay {
+	data, err := os.ReadFile(filepath.Join(hdDir, "overlays.json"))
+	if err != nil {
+		return nil
+	}
+	var doc HDOverlayDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	overlays := make([]HDOverlay, 0, len(doc.Overlays))
+	for _, entry := range doc.Overlays {
+		if entry.ID == "" || entry.Image == "" || len(entry.Pattern) == 0 {
+			continue
+		}
+		f, err := os.Open(filepath.Join(hdDir, filepath.FromSlash(entry.Image)))
+		if err != nil {
+			continue
+		}
+		decoded, _, err := image.Decode(f)
+		_ = f.Close()
+		if err != nil {
+			continue
+		}
+		overlays = append(overlays, HDOverlay{
+			ID:      entry.ID,
+			Image:   ebiten.NewImageFromImage(decoded),
+			Width:   entry.Width,
+			Height:  entry.Height,
+			Pattern: entry.Pattern,
+		})
+	}
+	if len(overlays) > 0 {
+		fmt.Printf("\033[1;32m🌟 GOSMS HD:\033[0m %d overlay(s) de objeto completo.\n", len(overlays))
+	}
+	return overlays
 }
 
 // LoadHeightPage decodifica una pagina de altura bajo demanda.
