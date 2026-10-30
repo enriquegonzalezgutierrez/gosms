@@ -244,6 +244,28 @@ Si dos objetos comparten un tile con resultados distintos, el empaquetador conse
 - resumen en consola;
 - detalle en `hd/conflicts.json`, con el objeto que gana, los descartados y el nombre del archivo de override que tendrías que crear.
 
+## Aplicar una imagen externa a un objeto
+
+Si has editado un objeto fuera del pipeline (a mano o con otra herramienta) y
+quieres probarlo en el juego sin volver a vectorizar el resto del pack:
+
+```bash
+.venv-remaster/bin/python tools/apply_object.py \
+  "assets/<ROM>" <object_id> imagen.png
+```
+
+La herramienta adapta la imagen al lienzo del objeto, la recorta con la
+silueta original (los píxeles transparentes de los sprites siguen siéndolo) y
+trocea el resultado en tiles de 8×8 que escribe en `hd/spritesheet.png`. No
+toca `hd/manifest.json` ni el resto de tiles.
+
+- La primera vez guarda una copia del atlas en `hd/spritesheet.png.bak`.
+- Para volver atrás: `cp "assets/<ROM>/hd/spritesheet.png.bak" "assets/<ROM>/hd/spritesheet.png"`.
+- El cambio afecta a **todos** los usos de esos tiles, no solo al objeto.
+- Si el pack tiene `height_sheet.png`, el relieve de esos tiles no se actualiza.
+- Un `make pack` o `make select-hd` posterior sobrescribe el parche: guarda la
+  imagen y vuelve a aplicarla si hace falta.
+
 ## Bloques de fondo
 
 `make remaster` agrupa el fondo visible en bloques de 8×8 tiles (64×64 píxeles) y los guarda como `bg_...`. Vectorizar un bloque completo es mucho mejor que vectorizar tiles aislados, porque el SDF ve los bordes reales y no inventa contornos en cada unión.
