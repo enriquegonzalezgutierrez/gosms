@@ -52,7 +52,7 @@ En el juego, el mando usa D-pad/stick para mover y A/B como botones 1/2.
 
 `MODERN+ PARALLAX` incluye un ciclo día/noche automático de 180 segundos (sol, luna, nubes y estrellas). `-day-cycle` cambia la duración; `0` lo desactiva.
 
-La música de fondo es opcional: si existe `assets/<ROM>/music/theme.ogg` (Ogg **Vorbis**, no Opus), se reproduce en bucle y silencia los canales de tono del PSG para no duplicar la música original; los efectos de ruido siguen sonando. `F6` o `M` la activa o desactiva. Usa `-music-mix` si quieres escuchar ambos. Si el OGG no es Vorbis, se convierte automáticamente con `ffmpeg`.
+La música de fondo es opcional: si existe `assets/<ROM>/music/theme.ogg` (Ogg **Vorbis**, no Opus), **no suena al arrancar**. `F6` o `M` la activa (o usa `-music`); mientras suena, silencia los canales de tono del PSG para no duplicar la música original; los efectos de ruido siguen sonando. Usa `-music-mix` si quieres escuchar ambos. Si el OGG no es Vorbis, se convierte automáticamente con `ffmpeg`.
 
 ### Filtros de audio
 

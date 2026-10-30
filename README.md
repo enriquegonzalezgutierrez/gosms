@@ -230,7 +230,7 @@ Los **fondos se mantienen planos a propósito**: iluminar cada bloque por separa
 
 ### Música de fondo opcional
 
-Si colocas un tema propio en `assets/<ROM>/music/theme.ogg` (Ogg **Vorbis**, no Opus), el emulador lo reproduce en bucle y **silencia los canales de tono del PSG** para no duplicar la música original; los efectos de ruido siguen sonando. **F6** o **M** lo activa o desactiva. Con `-music-mix` se mezclan ambos. Si el OGG es Opus u otro formato, se convierte automáticamente a Vorbis con `ffmpeg` y se cachea como `theme-vorbis.ogg`.
+Si colocas un tema propio en `assets/<ROM>/music/theme.ogg` (Ogg **Vorbis**, no Opus), **no suena al arrancar**: pulsa **F6** o **M** para activarlo (o arranca con `-music`). Mientras suena, silencia los canales de tono del PSG para no duplicar la música original; los efectos de ruido siguen sonando. Con `-music-mix` se mezclan ambos. Si el OGG es Opus u otro formato, se convierte automáticamente a Vorbis con `ffmpeg` y se cachea como `theme-vorbis.ogg`.
 
 `make objects` y `make remaster` conservan `music/`, validan el formato y lo convierten a Vorbis si hace falta con `ffmpeg`.
 

@@ -420,30 +420,32 @@ const (
 )
 
 type game struct {
-	state       AppState
-	romFiles    []string
-	roms        []RomItem
-	loadingIdx  int
-	loadingMsg  string
-	loadChan    chan RomItem
-	loadDone    chan bool
-	selected    int
-	curTitle    string
-	curRomPath  string
-	m           *machine.Machine
-	img         *ebiten.Image
-	fullscreen  bool
-	crop        bool
-	hdMode      bool
-	dumper      *LiveDumper
-	audioBuf    *audioBuffer
-	audioCtx    *audio.Context
-	musicPlayer *audio.Player
-	musicFile   *os.File
-	musicStream *vorbis.Stream
-	musicPath   string
-	musicOn     bool
-	musicMix    bool
+	state          AppState
+	romFiles       []string
+	roms           []RomItem
+	loadingIdx     int
+	loadingMsg     string
+	loadChan       chan RomItem
+	loadDone       chan bool
+	selected       int
+	curTitle       string
+	curRomPath     string
+	m              *machine.Machine
+	img            *ebiten.Image
+	fullscreen     bool
+	crop           bool
+	hdMode         bool
+	dumper         *LiveDumper
+	audioBuf       *audioBuffer
+	audioCtx       *audio.Context
+	musicPlayer    *audio.Player
+	musicFile      *os.File
+	musicStream    *vorbis.Stream
+	musicPath      string
+	musicCandidate string
+	musicOn        bool
+	musicMix       bool
+	musicAuto      bool
 
 	skyTime  float64
 	dayCycle float64
@@ -564,6 +566,7 @@ func (g *game) stopMusic() {
 	}
 	g.musicStream = nil
 	g.musicPath = ""
+	g.musicCandidate = ""
 	g.musicOn = false
 }
 
@@ -638,37 +641,44 @@ func (g *game) openMusic(path string) (*audio.Player, *os.File, *vorbis.Stream, 
 	return player, file, stream, nil
 }
 
-func (g *game) loadMusic(romPath string) {
-	if g.audioCtx == nil {
-		return
-	}
+// findMusicPath devuelve la ruta del tema opcional sin cargarlo. El tema no
+// suena por defecto: se activa con F6/M o con -music.
+func findMusicPath(romPath string) string {
 	base := strings.TrimSuffix(filepath.Base(romPath), filepath.Ext(romPath))
 	candidates := []string{
 		filepath.Join("assets", base, "music", "theme.ogg"),
 		filepath.Join(filepath.Dir(romPath), "music", "theme.ogg"),
 	}
 	for _, path := range candidates {
-		if _, err := os.Stat(path); err != nil {
-			continue
+		if _, err := os.Stat(path); err == nil {
+			return path
 		}
-		player, file, stream, err := g.openMusic(path)
-		if err != nil {
-			log.Printf("Música: no se pudo cargar %s: %v", path, err)
-			g.showOSD("MÚSICA: FORMATO NO SOPORTADO")
-			continue
-		}
-		player.SetVolume(0.55)
-		player.Play()
-		g.musicPlayer = player
-		g.musicFile = file
-		g.musicStream = stream
-		g.musicPath = path
-		g.musicOn = true
-		g.m.CPU.PSG.SetToneMute(!g.musicMix)
-		log.Printf("Música: cargada %s", path)
-		g.showOSD("MÚSICA: THEME.OGG")
-		return
 	}
+	return ""
+}
+
+// startMusic carga y reproduce el tema. Devuelve false si no se pudo.
+func (g *game) startMusic(path string) bool {
+	if g.audioCtx == nil || path == "" {
+		return false
+	}
+	player, file, stream, err := g.openMusic(path)
+	if err != nil {
+		log.Printf("Música: no se pudo cargar %s: %v", path, err)
+		return false
+	}
+	player.SetVolume(0.55)
+	player.Play()
+	g.musicPlayer = player
+	g.musicFile = file
+	g.musicStream = stream
+	g.musicPath = path
+	g.musicOn = true
+	if g.m != nil && g.m.CPU != nil {
+		g.m.CPU.PSG.SetToneMute(!g.musicMix)
+	}
+	log.Printf("Música: cargada %s", path)
+	return true
 }
 
 // updateParallax acumula el scroll del VDP sin saltos cuando el registro de
@@ -718,7 +728,15 @@ func (g *game) loopMusic() {
 
 func (g *game) toggleMusic() {
 	if g.musicPlayer == nil {
-		g.showOSD("SIN MÚSICA: añade assets/<ROM>/music/theme.ogg")
+		if g.musicCandidate == "" {
+			g.showOSD("SIN MÚSICA: añade assets/<ROM>/music/theme.ogg")
+			return
+		}
+		if !g.startMusic(g.musicCandidate) {
+			g.showOSD("MÚSICA: NO SE PUDO CARGAR")
+			return
+		}
+		g.showOSD("MÚSICA: ON")
 		return
 	}
 	g.musicOn = !g.musicOn
@@ -754,7 +772,10 @@ func (g *game) loadGame(path string) error {
 	// Cargar archivo .sav de batería de guardado si existe
 	sramPath := strings.TrimSuffix(path, filepath.Ext(path)) + ".sav"
 	g.m.CPU.LoadSRAM(sramPath)
-	g.loadMusic(path)
+	g.musicCandidate = findMusicPath(path)
+	if g.musicAuto && g.musicCandidate != "" && g.startMusic(g.musicCandidate) {
+		g.showOSD("MÚSICA: THEME.OGG")
+	}
 	g.parallaxInit = false
 	g.parallaxX = 0
 	g.parallaxY = 0
@@ -1436,6 +1457,7 @@ func main() {
 	romsDir := flag.String("roms", "roms", "directorio donde buscar juegos")
 	hd := flag.Bool("hd", false, "arrancar con el pack HD activado")
 	musicMix := flag.Bool("music-mix", false, "mezcla el PSG con theme.ogg en vez de silenciar la música original")
+	music := flag.Bool("music", false, "reproduce assets/<ROM>/music/theme.ogg al arrancar (por defecto está apagada)")
 	dayCycle := flag.Float64("day-cycle", 180, "duración en segundos del ciclo día/noche del parallax (0 lo desactiva)")
 	filter := flag.Int("filter", int(VideoFilterPixelPerfect), "filtro de vídeo inicial (0-5)")
 	bench := flag.Int("bench", 0, "ejecuta N frames y sale midiendo FPS (requiere ROM)")
@@ -1480,6 +1502,7 @@ func main() {
 		pipeline:     video.New(),
 		hdMode:       *hd,
 		musicMix:     *musicMix,
+		musicAuto:    *music,
 		dayCycle:     *dayCycle,
 		benchFrames:  *bench,
 		benchWarmup:  *benchWarmup,

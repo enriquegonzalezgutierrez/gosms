@@ -339,10 +339,10 @@ go run ./cmd/preview -frames 900 -pause 600 -filter modern -hd \
 
 ## Música de fondo opcional
 
-Puedes añadir un tema propio en `assets/<ROM>/music/theme.ogg` (Ogg **Vorbis**, no Opus). El emulador lo
-reproduce en bucle y silencia los canales de tono del PSG para no duplicar la
-música original; los efectos de ruido siguen sonando. **F6** o **M** lo activa
-o desactiva. Con `-music-mix` se mezclan ambos. Si el archivo es Opus u otro
+Puedes añadir un tema propio en `assets/<ROM>/music/theme.ogg` (Ogg **Vorbis**, no Opus). El emulador
+**no lo reproduce al arrancar**: **F6** o **M** lo activa (o usa `-music`).
+Mientras suena, silencia los canales de tono del PSG para no duplicar la
+música original; los efectos de ruido siguen sonando. Con `-music-mix` se mezclan ambos. Si el archivo es Opus u otro
 formato, el emulador lo convierte automáticamente a Vorbis con `ffmpeg` y
 cachea el resultado como `theme-vorbis.ogg`.
 
