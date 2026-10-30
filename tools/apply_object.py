@@ -61,6 +61,30 @@ def reference_alpha(asset_dir, obj, width, height):
     return mask
 
 
+def terrain_mask(asset_dir, obj, width, height, expected):
+    """Silueta de terreno del objeto: transparente en cielo, agua y fondo."""
+    preview = os.path.join(asset_dir, "original", obj.get("preview", ""))
+    if not obj.get("preview") or not os.path.exists(preview):
+        return Image.new("L", expected, 255)
+    source = Image.open(preview).convert("RGB").resize((width, height), Image.Resampling.NEAREST)
+    array = np.asarray(source).astype(int)
+    r, g, b = array[..., 0], array[..., 1], array[..., 2]
+    blue = (b > r + 30) & (b > g + 10)
+    dark = array.max(axis=2) < 45
+    mask = np.where(blue | dark, 0, 255).astype(np.uint8)
+    return Image.fromarray(mask, "L").resize(expected, Image.Resampling.NEAREST)
+
+
+def occupancy_mask(placements, width, height):
+    """Celdas que pertenecen al objeto. Las celdas en blanco del bloque no
+    forman parte del patron y deben quedar transparentes en el overlay."""
+    mask = Image.new("L", (width, height), 0)
+    for placement in placements:
+        x, y = placement["x"], placement["y"]
+        mask.paste(255, (x, y, x + 8, y + 8))
+    return mask
+
+
 def paste_with_gutter(sheet, tile, x, y, tile_size, padding):
     sheet.paste(tile, (x + padding, y + padding))
     sheet.paste(tile.crop((0, 0, 1, tile_size)).resize((padding, tile_size)), (x, y + padding))
@@ -150,6 +174,10 @@ def main():
         print(f"Imagen adaptada: {expected[0]}x{expected[1]} (original {width}x{height} a {scale}x)")
 
     alpha = reference_alpha(args.asset_dir, obj, width, height).resize(expected, Image.Resampling.NEAREST)
+    if args.overlay:
+        occupied = occupancy_mask(placements, width, height).resize(expected, Image.Resampling.NEAREST)
+        terrain = terrain_mask(args.asset_dir, obj, width, height, expected)
+        alpha = ImageChops.multiply(alpha, ImageChops.multiply(occupied, terrain))
     image.putalpha(ImageChops.multiply(image.getchannel("A"), alpha))
 
     if args.overlay:

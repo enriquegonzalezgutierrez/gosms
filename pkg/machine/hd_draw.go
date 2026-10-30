@@ -309,10 +309,6 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 
 			bgX := tileDrawX - sx
 			col := (bgX >> 3) & 0x1F
-			if covered[row][col] {
-				continue
-			}
-
 			off := (nameBase + row*64 + col*2) & 0x3FFF
 			entry := uint16(v.VRAM[(off+1)&0x3FFF])<<8 | uint16(v.VRAM[off])
 			tile := int(entry & 0x1FF)
@@ -396,7 +392,13 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 		}
 	}
 
-	// Overlays de objeto completo, antes que los tiles normales.
+	// Capa 1: Fondo Normal y Prioritario completo. El prioritario se pinta
+	// primero para que sus pixeles opacos sigan viendose donde no hay sprite.
+	for _, item := range bgLow {
+		drawBgItem(item)
+	}
+
+	// Overlays de objeto completo, encima de los tiles y debajo de los sprites.
 	for _, item := range overlayDraws {
 		op := &ebiten.DrawImageOptions{}
 		op.Filter = ebiten.FilterLinear
@@ -408,11 +410,6 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 		screen.DrawImage(item.img, op)
 	}
 
-	// Capa 1: Fondo Normal y Prioritario completo. El prioritario se pinta
-	// primero para que sus pixeles opacos sigan viendose donde no hay sprite.
-	for _, item := range bgLow {
-		drawBgItem(item)
-	}
 	for _, item := range bgHigh {
 		drawBgItem(item)
 	}

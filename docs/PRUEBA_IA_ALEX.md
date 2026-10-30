@@ -202,7 +202,43 @@ y la franja superior de 16 píxeles es distinta. Mantén esa periodicidad.
 
 ## Estado
 
-- Overlay aplicado: `hd/overlays/bg_14b93b286febf2ee.png` + `hd/overlays.json`.
-- `hd/spritesheet.png` está limpio (el parche por tiles se revirtió).
+- **18 overlays de fondo** aplicados desde las imágenes HD (`lote-hd`).
+- `hd/overlays.json` + `hd/overlays/<id>.png`.
+- `hd/spritesheet.png` es el atlas geométrico de 4x; los sprites no se han
+  tocado.
 - `hd-cinematic` y `hd-modern-plus` intactos.
-- Herramienta, soporte de overlays en el renderer y este documento en Git.
+- Herramienta, overlays, máscaras y este documento en Git.
+
+## Lote definitivo (partiendo del HD)
+
+El segundo lote (`dist/ai-test/lote-hd/`) parte de los bloques que ya están en
+`hd`, no del pixel art original. Así Gemini no inventa composición ni paleta:
+solo añade materiales y luz. Los 18 resultados se aplicaron como overlays.
+
+Además, `apply_object.py --overlay` recorta:
+
+- las **celdas vacías** del objeto (las que no tienen tile);
+- el **cielo, agua y fondo** del original, para que el overlay no tape el
+  escenario con rectángulos negros.
+
+Los tiles siguen dibujándose debajo del overlay, así que las zonas
+transparentes muestran el fondo original. Los sprites (Alex, moto, enemigos)
+no se han tocado: siguen siendo el pack geométrico.
+
+## Intento con el spritesheet completo (descartado)
+
+Se probó a sustituir `hd/spritesheet.png` por una versión generada a partir del
+atlas completo:
+
+- Gemini devolvió **324×2928** (1/4,74 del original): cada celda pasaría de
+  48 a ~10 px.
+- Al reescalar a 1536×13872 los tiles salen borrosos y las celdas no coinciden.
+- Una versión creada a **4000×36125** tampoco vale: Ebiten no puede con esa
+  textura y la rejilla de 32 columnas no encaja.
+- Al probarla en el juego aparecen cajas negras alrededor de los sprites y
+  bloques desplazados.
+
+Comparaciones: `dist/ai-test/comparacion/spritesheet-*.png`.
+
+Conclusión: el atlas es el **destino**, no la entrada. El trabajo se hace por
+objeto.
