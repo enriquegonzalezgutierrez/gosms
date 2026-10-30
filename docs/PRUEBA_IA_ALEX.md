@@ -136,6 +136,23 @@ cp "assets/Alex Kidd in Miracle World (UE) (V1.1) [!]/hd/spritesheet.png.bak" \
   completo de Gemini. Para que sea fiel habría que cambiar el mapa de tiles o
   generar una imagen exactamente periódica.
 
+## Periodicidad (para una segunda iteración)
+
+El bloque no es un dibujo libre: sus 8 tiles se reutilizan en 64 posiciones.
+
+- El **interior** se repite exactamente cada **16×16 píxeles de juego** (2×2
+  tiles).
+- La **franja superior de 16 píxeles** es distinta: tiene 4 tiles especiales
+  para el borde de la hierba.
+
+Si Gemini no respeta esa repetición, 56 posiciones acaban usando el tile de
+otra posición. Para la próxima prueba, añade al prompt:
+
+```text
+El patrón interior se repite exactamente cada 16x16 píxeles de juego (2x2 tiles)
+y la franja superior de 16 píxeles es distinta. Mantén esa periodicidad.
+```
+
 ## Limitaciones y normas
 
 - La IA no sustituye al pipeline: el pack geométrico está completo, alineado y
