@@ -315,7 +315,10 @@ release-complete:
 		mkdir -p "$$dir/roms"; \
 		cp "bin/$$bin" "$$dir/$$exe"; \
 		cp README.md CONTROLES.md "$$dir/"; \
-		if [ -d roms ]; then cp -r roms/. "$$dir/roms/"; fi; \
+		if [ -d roms ]; then \
+			find roms -maxdepth 1 -type f \( -name '*.sms' -o -name '*.bin' -o -name '*.sg' \) -exec cp {} "$$dir/roms/" \;; \
+		fi; \
+		rom_count=$$(find "$$dir/roms" -type f | wc -l | tr -d ' '); \
 		for hd in assets/*/hd; do \
 			[ -f "$$hd/manifest.json" ] || [ -f "$$hd/pack.json" ] || continue; \
 			game=$$(basename "$$(dirname "$$hd")"); \
@@ -328,7 +331,11 @@ release-complete:
 			mkdir -p "$$dir/assets/$$game"; \
 			cp -r "$$music" "$$dir/assets/$$game/"; \
 		done; \
-		printf "GoSMS completo para %s\n\nIncluye todas las ROMs de roms/ y los packs HD de assets/<juego>/hd.\nUso local: este ZIP contiene material con copyright y no debe publicarse.\n" "$$os" > "$$dir/LEEME.txt"; \
+		printf "GoSMS completo para %s\n\n" "$$os" > "$$dir/LEEME.txt"; \
+		printf "Incluye el emulador, %s ROMs en roms/ y los packs HD de assets/<juego>/hd/.\n\n" "$$rom_count" >> "$$dir/LEEME.txt"; \
+		printf "Como jugar:\n- Linux: ./gosms (si hace falta: chmod +x gosms)\n- Windows: gosms.exe\n\n" >> "$$dir/LEEME.txt"; \
+		printf "Controles:\n- Flechas: mover. Z/Espacio: boton 1. X: boton 2. P/Enter: pausa.\n- F10: HD/original. F1: filtros (Remaster 2026, Modern+, Modern+ Parallax).\n- F2: audio. F6/M: musica. F11: pantalla completa. F12/H: ayuda.\n- F3/F4: guardar/cargar. F5: captura. Esc: menu.\n\n" >> "$$dir/LEEME.txt"; \
+		printf "Notas:\n- Los packs HD son de Alex Kidd y Castle of Illusion; el resto se juega en original.\n- Alex Kidd incluye music/theme.ogg: activala con F6/M.\n- Material con copyright para uso local; no lo publiques.\n" >> "$$dir/LEEME.txt"; \
 		(cd dist && rm -f "gosms-$$os-complete.zip" && zip -qr "gosms-$$os-complete.zip" "gosms-$$os-complete"); \
 	done
 	@printf "$(GREEN)✨ RELEASES COMPLETAS LOCALES LISTAS$(RESET)\n"
