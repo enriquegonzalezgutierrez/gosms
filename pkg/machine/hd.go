@@ -230,6 +230,10 @@ type HDRenderer struct {
 	// poses de sprites). Se reconocen por su celda ancla y su firma.
 	Objects []HDObject
 
+	// ForcedBackground permite probar un fondo concreto sin depender del
+	// matcher. Se activa con GOSMS_FORCE_BG=<id>.
+	ForcedBackground *HDObject
+
 	Scale int
 }
 
@@ -503,6 +507,7 @@ func loadHDPackV2(hdDir string, data []byte) bool {
 		return false
 	}
 	hd.Objects = loadHDObjects(hdDir)
+	hd.ForcedBackground = findForcedBackground(hd.Objects)
 	HD = hd
 	fmt.Printf("\033[1;32m🌟 GOSMS HD ENGINE:\033[0m Pack v2 cargado -> %d texturas en %d páginas (Escala %dx, carga bajo demanda)\n",
 		mapped, len(hd.Pages), hd.Scale)
@@ -598,6 +603,7 @@ func loadHDLegacy(hdDir string) {
 	hd.Scale = scale
 	hd.Overlays = loadHDOverlays(hdDir)
 	hd.Objects = loadHDObjects(hdDir)
+	hd.ForcedBackground = findForcedBackground(hd.Objects)
 
 	cellSize := 12 * scale
 	padding := 2 * scale
@@ -655,6 +661,21 @@ func loadHDOverlays(hdDir string) []HDOverlay {
 		fmt.Printf("\033[1;32m🌟 GOSMS HD:\033[0m %d overlay(s) de objeto completo.\n", len(overlays))
 	}
 	return overlays
+}
+
+// findForcedBackground busca el objeto indicado por GOSMS_FORCE_BG. Es una
+// ayuda de desarrollo para validar un fondo sin tocar el matcher.
+func findForcedBackground(objects []HDObject) *HDObject {
+	id := os.Getenv("GOSMS_FORCE_BG")
+	if id == "" {
+		return nil
+	}
+	for i := range objects {
+		if objects[i].ID == id {
+			return &objects[i]
+		}
+	}
+	return nil
 }
 
 // loadHDObjects carga los objetos completos exportados por tile_tool.py pack.

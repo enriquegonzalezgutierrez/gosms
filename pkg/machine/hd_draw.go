@@ -196,7 +196,28 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 		sx, sy       float64
 	}
 	var overlayDraws []overlayItem
+	var forcedDraws []overlayItem
 	var covered [28][32]bool
+	var objectCovered [28][32]bool
+	skipTiles := false
+	if hd.ForcedBackground != nil && scrollX == 0 {
+		obj := hd.ForcedBackground
+		for r := 0; r < 24; r++ {
+			for c := 0; c < 32; c++ {
+				covered[r][c] = true
+				objectCovered[r][c] = true
+			}
+		}
+		sx := scale * float64(obj.Width) / float64(obj.Image.Bounds().Dx())
+		sy := scale * float64(obj.Height) / float64(obj.Image.Bounds().Dy())
+		forcedDraws = append(forcedDraws, overlayItem{
+			img:   obj.Image,
+			drawX: destX - cropOffset*scale,
+			drawY: destY - float64(scrollY)*scale,
+			sx:    sx, sy: sy,
+		})
+		skipTiles = true
+	}
 	if len(hd.Overlays) > 0 {
 		var grid [28][32]string
 		for r := 0; r < 28; r++ {
@@ -282,12 +303,11 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 	// celda ancla elegida al exportar, así que solo se verifica su firma cuando
 	// esa celda coincide. Alex Kidd usa pantallas fijas, de modo que la pantalla
 	// completa se puede sustituir por una sola imagen coherente.
-	var objectCovered [28][32]bool
 	// Los fondos completos solo valen en pantallas fijas. En niveles con scroll
 	// el name table visible no es la pantalla completa y dibujar el objeto
 	// desplazado produce saltos y sensación de retroceso. En ese caso se usan
 	// los tiles HD normales.
-	if len(hd.Objects) > 0 && scrollX == 0 && scrollY == 0 && !lineScrollActive(v) {
+	if len(hd.Objects) > 0 && scrollX == 0 {
 		var objectGrid [28][32]string
 		gridReady := false
 		for _, obj := range hd.Objects {
@@ -393,7 +413,7 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 
 			bgX := tileDrawX - sx
 			col := (bgX >> 3) & 0x1F
-			if objectCovered[row][col] {
+			if skipTiles || objectCovered[row][col] {
 				continue
 			}
 			off := (nameBase + row*64 + col*2) & 0x3FFF
@@ -499,6 +519,17 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 
 	for _, item := range bgHigh {
 		drawBgItem(item)
+	}
+
+	for _, item := range forcedDraws {
+		op := &ebiten.DrawImageOptions{}
+		op.Filter = ebiten.FilterLinear
+		if hdScale == 1 {
+			op.Filter = ebiten.FilterNearest
+		}
+		op.GeoM.Scale(item.sx, item.sy)
+		op.GeoM.Translate(item.drawX, item.drawY)
+		screen.DrawImage(item.img, op)
 	}
 
 	// Capa 2: Sprites HD (con fallback continuo a píxel nativo si no está en HD)
