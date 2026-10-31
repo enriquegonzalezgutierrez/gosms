@@ -214,6 +214,7 @@ def export_complete_objects(document, original_dir, work_dir, hd_dir, scale):
             "image": f"objects/{name}",
             "width": obj.get("width", 0),
             "height": obj.get("height", 0),
+            "palette": obj.get("palette", ""),
             "anchor": obj["anchor"],
             "signature": obj["signature"],
         })

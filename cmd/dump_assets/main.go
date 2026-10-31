@@ -992,10 +992,13 @@ func main() {
 		if label := labels[id]; label != "" {
 			object.manifest.Label = label
 		}
-		file, err := os.Create(filepath.Join(objectDir, id+".png"))
-		if err == nil {
-			_ = png.Encode(file, object.preview)
-			_ = file.Close()
+		previewPath := filepath.Join(outDir, filepath.FromSlash(object.manifest.Preview))
+		if err := os.MkdirAll(filepath.Dir(previewPath), 0755); err == nil {
+			file, err := os.Create(previewPath)
+			if err == nil {
+				_ = png.Encode(file, object.preview)
+				_ = file.Close()
+			}
 		}
 		objectManifest = append(objectManifest, object.manifest)
 	}

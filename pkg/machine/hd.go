@@ -4,6 +4,7 @@
 package machine
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -45,8 +46,8 @@ type TileObjectManifest struct {
 	Tiles      []TileObjectPlacement `json:"tiles"`
 	Width      int                   `json:"width,omitempty"`
 	Height     int                   `json:"height,omitempty"`
+	Palette    string                `json:"palette,omitempty"`
 	Anchor     *TileObjectPattern    `json:"anchor,omitempty"`
-	Key        []TileObjectPattern   `json:"key,omitempty"`
 	Signature  []TileObjectPattern   `json:"signature,omitempty"`
 }
 
@@ -154,6 +155,7 @@ type HDObjectEntry struct {
 	Image     string             `json:"image"`
 	Width     int                `json:"width"`
 	Height    int                `json:"height"`
+	Palette   string             `json:"palette,omitempty"`
 	Anchor    *HDOverlayPattern  `json:"anchor,omitempty"`
 	Signature []HDOverlayPattern `json:"signature"`
 }
@@ -171,6 +173,7 @@ type HDObject struct {
 	Image     *ebiten.Image
 	Width     int
 	Height    int
+	Palette   []byte
 	Anchor    HDOverlayPattern
 	Signature []HDOverlayPattern
 }
@@ -244,11 +247,14 @@ func TileHash(tileData []byte, cram []byte, isSprite bool) string {
 	return fmt.Sprintf("%016x", h.Sum64())
 }
 
-// CellHash identifies a background name table cell. It includes the tile,
-// palette and both flip bits so a complete object only matches the exact
-// on-screen pattern. The static exporter and the runtime use this same helper.
-func CellHash(tileData, cram []byte, hflip, vflip bool) string {
-	base := TileHash(tileData, cram, false)
+// CellHash identifies a background name table cell by its tile pattern and
+// flip bits. Deliberately excludes CRAM: Alex Kidd animates palette entries
+// (agua, cielo) y un objeto completo debe seguir reconociéndose aunque el color
+// exacto cambie. La compatibilidad de paleta se comprueba aparte.
+func CellHash(tileData []byte, hflip, vflip bool) string {
+	h := fnv.New64a()
+	h.Write(tileData)
+	base := fmt.Sprintf("%016x", h.Sum64())
 	switch {
 	case hflip && vflip:
 		return base + "hv"
@@ -685,6 +691,11 @@ func loadHDObjects(hdDir string) []HDObject {
 			Width:     entry.Width,
 			Height:    entry.Height,
 			Signature: entry.Signature,
+		}
+		if entry.Palette != "" {
+			if palette, err := hex.DecodeString(entry.Palette); err == nil {
+				obj.Palette = palette
+			}
 		}
 		if entry.Anchor != nil {
 			obj.Anchor = *entry.Anchor

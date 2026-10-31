@@ -296,12 +296,8 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 						off := (nameBase + r*64 + c*2) & 0x3FFF
 						entry := uint16(v.VRAM[(off+1)&0x3FFF])<<8 | uint16(v.VRAM[off])
 						tile := int(entry & 0x1FF)
-						po := 0
-						if entry&0x800 != 0 {
-							po = 16
-						}
 						pat := (tile * 32) & 0x3FFF
-						objectGrid[r][c] = CellHash(v.VRAM[pat:pat+32], v.CRAM[po:po+16], entry&0x200 != 0, entry&0x400 != 0)
+						objectGrid[r][c] = CellHash(v.VRAM[pat:pat+32], entry&0x200 != 0, entry&0x400 != 0)
 					}
 				}
 				gridReady = true
@@ -317,7 +313,7 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 					break
 				}
 			}
-			if !match {
+			if !match || !paletteCompatible(obj.Palette, v.CRAM[:16]) {
 				continue
 			}
 			overlap := false
@@ -721,6 +717,21 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 
 	// 4. Máscara de recorte de bordes 4:3
 	clipViewport(screen, destX, destY, float64(viewW), float64(viewH))
+}
+
+// paletteCompatible acepta pequeñas diferencias de CRAM (colores animados)
+// pero rechaza paletas de otro nivel. Alex Kidd anima una o dos entradas.
+func paletteCompatible(object, current []byte) bool {
+	if len(object) < 16 || len(current) < 16 {
+		return true
+	}
+	equal := 0
+	for i := 0; i < 16; i++ {
+		if object[i] == current[i] {
+			equal++
+		}
+	}
+	return equal >= 12
 }
 
 // overlayScrollX devuelve el scroll horizontal comun a las filas visibles del

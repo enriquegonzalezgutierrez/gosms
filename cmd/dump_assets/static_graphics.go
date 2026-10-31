@@ -204,7 +204,7 @@ func addStaticTileSets(rom []byte, level int, addTile func([]byte, []byte, bool)
 		id := fmt.Sprintf("rom_%s_level_%02d", set.id, level)
 		objects[id] = &objectAccumulator{manifest: machine.TileObjectManifest{
 			ID: id, Kind: map[bool]string{true: "sprite_tileset", false: "background_tileset"}[set.sprite],
-			Label: set.label, Preview: fmt.Sprintf("objects/%s.png", id), FramesSeen: 1,
+			Label: set.label, Preview: fmt.Sprintf("tilesets/%s.png", id), FramesSeen: 1,
 			FirstFrame: 0, Tiles: placements,
 		}, preview: preview}
 	}

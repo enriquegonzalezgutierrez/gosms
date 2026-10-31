@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"hash/fnv"
 	"image"
@@ -279,11 +280,11 @@ func renderAlexKiddScreen(rom []byte, v *alexKiddVRAM, scene machine.TileSceneMa
 		}
 		for mx := 0; mx < 16; mx++ {
 			entries := alexKiddMetatileEntries(rom, table, row[mx])
-			// The four entries are stored as [top-left, bottom-left,
-			// top-right, bottom-right].
+			// The four entries are stored as [top-left, top-right,
+			// bottom-left, bottom-right].
 			cells[my*2][mx*2] = entries[0]
-			cells[my*2+1][mx*2] = entries[1]
-			cells[my*2][mx*2+1] = entries[2]
+			cells[my*2][mx*2+1] = entries[1]
+			cells[my*2+1][mx*2] = entries[2]
 			cells[my*2+1][mx*2+1] = entries[3]
 			for i, entry := range entries {
 				tile := int(entry & 0x1ff)
@@ -293,8 +294,8 @@ func renderAlexKiddScreen(rom []byte, v *alexKiddVRAM, scene machine.TileSceneMa
 				if entry&0x800 != 0 {
 					palOffset = 16
 				}
-				px := mx*16 + (8 * (i / 2))
-				py := my*16 + (8 * (i % 2))
+				px := mx*16 + (8 * (i % 2))
+				py := my*16 + (8 * (i / 2))
 				drawStaticTile(pixels, v.tiles[tile*32:tile*32+32], palette[palOffset:palOffset+16], px, py, hflip, vflip)
 			}
 		}
@@ -304,11 +305,7 @@ func renderAlexKiddScreen(rom []byte, v *alexKiddVRAM, scene machine.TileSceneMa
 		for x := 0; x < 32; x++ {
 			entry := cells[y][x]
 			tile := int(entry & 0x1ff)
-			palOffset := 0
-			if entry&0x800 != 0 {
-				palOffset = 16
-			}
-			hash := machine.CellHash(v.tiles[tile*32:tile*32+32], v.cram[palOffset:palOffset+16], entry&0x200 != 0, entry&0x400 != 0)
+			hash := machine.CellHash(v.tiles[tile*32:tile*32+32], entry&0x200 != 0, entry&0x400 != 0)
 			signature = append(signature, machine.TileObjectPattern{DX: x, DY: y, Hash: hash})
 		}
 	}
@@ -350,6 +347,7 @@ func alexKiddBackgroundObjects(rom []byte, scenes []machine.TileSceneManifest, o
 		scene     machine.TileSceneManifest
 		img       *image.RGBA
 		signature []machine.TileObjectPattern
+		palette   []byte
 		id        string
 	}
 	renderedScenes := make([]rendered, 0, len(scenes))
@@ -369,7 +367,7 @@ func alexKiddBackgroundObjects(rom []byte, scenes []machine.TileSceneManifest, o
 		for _, pattern := range signature {
 			frequencies[pattern.Hash]++
 		}
-		renderedScenes = append(renderedScenes, rendered{scene: scene, img: img, signature: signature, id: id})
+		renderedScenes = append(renderedScenes, rendered{scene: scene, img: img, signature: signature, palette: append([]byte(nil), v.cram...), id: id})
 	}
 
 	objects := make([]*objectAccumulator, 0, len(renderedScenes))
@@ -393,6 +391,7 @@ func alexKiddBackgroundObjects(rom []byte, scenes []machine.TileSceneManifest, o
 			FirstFrame: 0,
 			Width:      256,
 			Height:     192,
+			Palette:    hex.EncodeToString(item.palette),
 			Anchor:     &anchor,
 			Signature:  item.signature,
 		}
