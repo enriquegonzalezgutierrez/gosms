@@ -44,7 +44,7 @@ WHITE   := \033[1;37m
 RESET   := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test bench perf bench-ui bench-ui-matrix verify-hd audit-alpha select-hd check-music release release-complete audit android-docker clean-assets
+.PHONY: help build run clean objects remaster unpack cinematic pack preview setup test bench perf bench-ui bench-ui-matrix verify-hd audit-alpha select-hd check-music release release-complete audit android-docker clean-assets gemini-sheet gemini-slice
 
 help:
 	@printf "\n$(BLUE)  ╔══════════════════════════════════════════════════════════════╗$(RESET)\n"
@@ -67,6 +67,8 @@ help:
 	@printf "  $(GREEN)make unpack$(RESET)     Prepara composites por objeto en remaster_workspace/\n"
 	@printf "  $(GREEN)make cinematic$(RESET)  Remasteriza todo el catálogo en HD (PACK_STYLE=cinematic|modern-plus)\n"
 	@printf "  $(GREEN)make pack$(RESET)       Empaqueta en páginas v2 (sin spritesheet) con la misma PACK_SCALE\n"
+	@printf "  $(GREEN)make gemini-sheet$(RESET) Genera la hoja de 33 poses de Alex para Gemini\n"
+	@printf "  $(GREEN)make gemini-slice$(RESET) Recorta la hoja devuelta por Gemini (SHEET=...)\n"
 	@printf "  $(GREEN)make preview$(RESET)    Renderiza un frame: make preview ROM=... [PREVIEW_FILTER=modern] [PREVIEW_HD=true]\n"
 	@printf "  $(GREEN)make setup$(RESET)      Crea .venv-remaster con numpy (opcional, acelera el vectorizado)\n"
 	@printf "  $(GREEN)make release$(RESET)    Compila para Linux/Windows/Android y genera los zips\n"
@@ -208,6 +210,7 @@ remaster:
 ifdef ROM
 	@$(MAKE) objects ROM="$(ROM)"
 	@$(MAKE) unpack ROM="$(ROM)"
+	@$(MAKE) gemini-sheet ROM="$(ROM)"
 	@$(MAKE) cinematic ROM="$(ROM)"
 	@$(MAKE) pack ROM="$(ROM)"
 else
@@ -247,6 +250,27 @@ ifdef ROM
 	GOSMS_SCALE=$(PACK_SCALE) PYTHONUNBUFFERED=1 $(PY) tools/cinematic_tool.py "$$@"
 else
 	@printf "Uso: make cinematic ROM='roms/juego.sms' [PACK_SCALE=4] [PACK_STYLE=cinematic|modern-plus] [CINE_MATCH=sprite_] [CINE_ONLY=id] [CINE_LIMIT=0] [CINE_SKIP=0]\n"
+	@exit 2
+endif
+
+gemini-sheet:
+ifdef ROM
+	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
+	printf "$(BLUE)==> Generando hoja de poses para Gemini...$(RESET)\n"; \
+	$(PY) tools/pose_sheet.py build "$$ROM_BASE"
+else
+	@printf "Uso: make gemini-sheet ROM='roms/juego.sms'\n"
+	@exit 2
+endif
+
+gemini-slice:
+ifdef ROM
+	@test -n "$(SHEET)" || (printf "Uso: make gemini-slice ROM='roms/juego.sms' SHEET=ruta/poses_sheet_gemini.png [PACK_AI=1]\n"; exit 2)
+	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
+	printf "$(BLUE)==> Recortando hoja de Gemini...$(RESET)\n"; \
+	$(PY) tools/pose_sheet.py slice "$$ROM_BASE" "$(SHEET)" $(if $(PACK_AI),--pack,)
+else
+	@printf "Uso: make gemini-slice ROM='roms/juego.sms' SHEET=ruta/poses_sheet_gemini.png [PACK_AI=1]\n"
 	@exit 2
 endif
 
