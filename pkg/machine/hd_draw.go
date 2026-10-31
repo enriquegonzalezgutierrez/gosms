@@ -283,7 +283,11 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 	// esa celda coincide. Alex Kidd usa pantallas fijas, de modo que la pantalla
 	// completa se puede sustituir por una sola imagen coherente.
 	var objectCovered [28][32]bool
-	if len(hd.Objects) > 0 {
+	// Los fondos completos solo valen en pantallas fijas. En niveles con scroll
+	// el name table visible no es la pantalla completa y dibujar el objeto
+	// desplazado produce saltos y sensación de retroceso. En ese caso se usan
+	// los tiles HD normales.
+	if len(hd.Objects) > 0 && scrollX == 0 && scrollY == 0 && !lineScrollActive(v) {
 		var objectGrid [28][32]string
 		gridReady := false
 		for _, obj := range hd.Objects {
@@ -717,6 +721,20 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 
 	// 4. Máscara de recorte de bordes 4:3
 	clipViewport(screen, destX, destY, float64(viewW), float64(viewH))
+}
+
+// lineScrollActive indica si el VDP está desplazando filas de forma
+// individual. Un valor válido pero todo a cero sigue siendo una pantalla fija.
+func lineScrollActive(v *vdp.VDP) bool {
+	if !v.LineScrollValid {
+		return false
+	}
+	for _, value := range v.LineScrollX {
+		if value != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // paletteCompatible acepta pequeñas diferencias de CRAM (colores animados)

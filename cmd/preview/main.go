@@ -203,6 +203,7 @@ func main() {
 	dayCycle := flag.Float64("cycle", 180, "duración del ciclo día/noche en segundos (0 lo desactiva)")
 	pause := flag.Int("pause", -1, "pulsa PAUSE/NMI en este frame (util para capturar el mapa)")
 	script := flag.String("script", "", "guion de entradas: frame:padhex:frames,...")
+	statePath := flag.String("state", "", "cargar un estado guardado antes de emular")
 	poke := flag.String("poke", "", "pokes de RAM: frame:addr=val,...")
 	flag.Parse()
 	if flag.NArg() < 1 {
@@ -220,6 +221,11 @@ func main() {
 		log.Fatal(err)
 	}
 	m := machine.New(rom)
+	if *statePath != "" {
+		if err := m.LoadState(*statePath); err != nil {
+			log.Fatalf("no se pudo cargar el estado %s: %v", *statePath, err)
+		}
+	}
 	presses := parsePadScript(*script)
 	pokes := parsePokes(*poke)
 	for i := 0; i < *frames; i++ {
