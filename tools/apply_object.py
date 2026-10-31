@@ -40,7 +40,7 @@ def reference_alpha(asset_dir, obj, width, height):
     sheet = Image.open(sheet_path).convert("RGBA") if os.path.exists(sheet_path) else None
     cols = sheet.width // 12 if sheet is not None else 0
     mask = Image.new("L", (width, height), 0)
-    for placement in obj.get("tiles", []):
+    for placement in (obj.get("tiles") or []):
         index = placement["index"]
         item = by_index.get(index)
         if item is None:
@@ -132,7 +132,7 @@ def main():
     obj = next((item for item in manifest.get("objects", []) if item["id"] == args.object_id), None)
     if obj is None:
         sys.exit(f"No existe el objeto {args.object_id} en {args.asset_dir}")
-    placements = obj.get("tiles", [])
+    placements = (obj.get("tiles") or [])
     if not placements:
         sys.exit("El objeto no tiene tiles")
 

@@ -52,7 +52,7 @@ def main():
     for item in original["tiles"]:
         is_sprite[item["index"]] = bool(item.get("is_sprite"))
     for obj in original.get("objects", []):
-        for placement in obj.get("tiles", []):
+        for placement in (obj.get("tiles") or []):
             by_index[placement["index"]].append(obj)
 
     rows = []

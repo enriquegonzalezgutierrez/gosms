@@ -3,6 +3,7 @@ CMD_DIR := cmd
 PKG_DIR := pkg
 FRAMES ?= 6500
 PACK_SCALE ?= 4
+PACK_PAGES ?= 1
 BG_GROUP ?= 8
 BG_PROTECT ?= 2
 BOT ?= alex-kidd
@@ -65,7 +66,7 @@ help:
 	@printf "  $(GREEN)make remaster$(RESET)  Borra, extrae, remasteriza en cinematográfico y empaqueta una ROM\n"
 	@printf "  $(GREEN)make unpack$(RESET)     Prepara composites por objeto en remaster_workspace/\n"
 	@printf "  $(GREEN)make cinematic$(RESET)  Remasteriza todo el catálogo en HD (PACK_STYLE=cinematic|modern-plus)\n"
-	@printf "  $(GREEN)make pack$(RESET)       Empaqueta los objetos remasterizados (misma PACK_SCALE que el vectorizado)\n"
+	@printf "  $(GREEN)make pack$(RESET)       Empaqueta en páginas v2 (sin spritesheet) con la misma PACK_SCALE\n"
 	@printf "  $(GREEN)make preview$(RESET)    Renderiza un frame: make preview ROM=... [PREVIEW_FILTER=modern] [PREVIEW_HD=true]\n"
 	@printf "  $(GREEN)make setup$(RESET)      Crea .venv-remaster con numpy (opcional, acelera el vectorizado)\n"
 	@printf "  $(GREEN)make release$(RESET)    Compila para Linux/Windows/Android y genera los zips\n"
@@ -253,7 +254,7 @@ pack:
 ifdef ROM
 	@ROM_BASE=$$(basename "$(ROM)"); ROM_BASE=$${ROM_BASE%.*}; \
 	printf "$(BLUE)==> Empaquetando workspace a HD %sx...$(RESET)\n" "$(PACK_SCALE)"; \
-	GOSMS_SCALE=$(PACK_SCALE) $(PY) tools/tile_tool.py pack "$$ROM_BASE"
+	GOSMS_SCALE=$(PACK_SCALE) GOSMS_PAGES=$(PACK_PAGES) $(PY) tools/tile_tool.py pack "$$ROM_BASE"
 else
 	@printf "Uso: make pack ROM='roms/Alex Kidd in Miracle World.sms'\n"
 	@exit 2

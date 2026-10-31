@@ -43,7 +43,7 @@ type TileObjectManifest struct {
 	Preview    string                `json:"preview"`
 	FramesSeen int                   `json:"frames_seen"`
 	FirstFrame int                   `json:"first_frame"`
-	Tiles      []TileObjectPlacement `json:"tiles"`
+	Tiles      []TileObjectPlacement `json:"tiles,omitempty"`
 	Width      int                   `json:"width,omitempty"`
 	Height     int                   `json:"height,omitempty"`
 	Palette    string                `json:"palette,omitempty"`

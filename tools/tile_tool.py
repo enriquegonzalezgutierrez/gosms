@@ -100,7 +100,7 @@ def make_object_contact_sheet(objects, source_object_dir, out_dir):
         sheet.alpha_composite(preview, (px, py))
         label = obj.get("label", "unlabeled")
         draw.text((x + 8, y + cell_height - 40), f"{label} · {obj['id']}", font=font, fill=(255, 255, 255, 255))
-        draw.text((x + 8, y + cell_height - 24), f"{obj.get('kind', '')} · {len(obj.get('tiles', []))} tiles", font=font, fill=(170, 190, 215, 255))
+        draw.text((x + 8, y + cell_height - 24), f"{obj.get('kind', '')} · {len((obj.get('tiles') or []))} tiles", font=font, fill=(170, 190, 215, 255))
     sheet.save(os.path.join(out_dir, "objects_contact_sheet.png"))
 
 
@@ -254,7 +254,7 @@ def unpack(rom_name):
             os.remove(os.path.join(source_object_dir, name))
 
     for obj in remasterable_objects:
-        placements = obj.get("tiles", [])
+        placements = (obj.get("tiles") or [])
         complete = complete_object_image(obj, original_dir, None, SCALE)
         if complete is not None:
             complete.save(os.path.join(source_object_dir, f"{obj['id']}.png"))
@@ -278,7 +278,7 @@ def unpack(rom_name):
         writer = csv.writer(output)
         writer.writerow(("id", "label", "kind", "frames_seen", "tile_indices", "source_image", "remaster_output"))
         for obj in document["objects"]:
-            indices = sorted({tile["index"] for tile in obj.get("tiles", [])})
+            indices = sorted({tile["index"] for tile in (obj.get("tiles") or [])})
             is_object = is_remasterable_object(obj)
             writer.writerow((obj["id"], obj.get("label", "unlabeled"), obj.get("kind", ""),
                              obj.get("frames_seen", 0), ";".join(map(str, indices)),
@@ -437,7 +437,7 @@ def pack(rom_name):
         key=lambda obj: (
             1 if obj.get("kind") == "sprite_cluster" else 0,
             obj.get("frames_seen", 0),
-            len(obj.get("tiles", [])),
+            len((obj.get("tiles") or [])),
         ),
         reverse=True,
     )
@@ -445,7 +445,7 @@ def pack(rom_name):
         path = remastered_object_path(work_dir, obj["id"])
         if path is None:
             continue
-        placements = obj.get("tiles", [])
+        placements = (obj.get("tiles") or [])
         if not placements:
             continue
         logical_width = max(tile["x"] + 8 for tile in placements)
@@ -460,7 +460,7 @@ def pack(rom_name):
         )
         if original_size != expected_size:
             print(f"🔎 Adaptando {os.path.basename(path)}: {original_size[0]}x{original_size[1]} → {expected_size[0]}x{expected_size[1]} (cuadrícula {SCALE}x)")
-        for placement in obj.get("tiles", []):
+        for placement in (obj.get("tiles") or []):
             index = placement["index"]
             x, y = placement["x"] * SCALE, placement["y"] * SCALE
             if x + TILE_SIZE > composite.width or y + TILE_SIZE > composite.height:
@@ -554,8 +554,6 @@ def pack(rom_name):
             "tile_size": 8,
             "pages": page_names,
             "tiles": page_tiles,
-            "objects": document.get("objects", []),
-            "scenes": document.get("scenes", []),
         }
         if height_page_names:
             pack_document["height_pages"] = height_page_names

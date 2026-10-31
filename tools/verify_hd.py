@@ -107,10 +107,10 @@ def main():
 
     dup_objects = []
     for obj in original_manifest.get("objects", []):
-        counts = Counter((p["x"], p["y"]) for p in obj.get("tiles", []))
+        counts = Counter((p["x"], p["y"]) for p in (obj.get("tiles") or []))
         dup = {pos: n for pos, n in counts.items() if n > 1}
         if dup:
-            dup_objects.append((obj["id"], obj.get("kind"), len(obj.get("tiles", [])), len(dup)))
+            dup_objects.append((obj["id"], obj.get("kind"), len((obj.get("tiles") or [])), len(dup)))
 
     print(f"tiles originales: {len(original_manifest['tiles'])}")
     print(f"tiles en el pack: {len(hd_by_index)}")
