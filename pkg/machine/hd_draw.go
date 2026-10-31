@@ -618,6 +618,15 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 				for _, si := range used {
 					spriteCovered[si] = true
 				}
+				// Tapa también cualquier sprite de hardware que caiga dentro del
+				// rectángulo de la pose. Si no, los tiles de Alex se asoman por
+				// los bordes y dejan líneas o mitades de cara separadas.
+				for si, sprite := range sprites {
+					if sprite.x >= topX-8 && sprite.x < topX+obj.Width+8 &&
+						sprite.y >= topY-8 && sprite.y < topY+obj.Height+8 {
+						spriteCovered[si] = true
+					}
+				}
 				break
 			}
 		}
