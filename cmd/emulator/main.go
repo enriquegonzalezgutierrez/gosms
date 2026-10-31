@@ -453,6 +453,7 @@ type game struct {
 
 	parallaxX     float64
 	parallaxY     float64
+	parallaxSign  float64
 	parallaxLastX int
 	parallaxLastY int
 	parallaxInit  bool
@@ -711,7 +712,7 @@ func (g *game) updateParallax() {
 	} else if dy < -112 {
 		dy += 224
 	}
-	g.parallaxX += float64(dx) / float64(vdp.ScreenW)
+	g.parallaxX += g.parallaxSign * float64(dx) / float64(vdp.ScreenW)
 	g.parallaxY += float64(dy) / 224.0
 	g.parallaxLastX, g.parallaxLastY = x, y
 }
@@ -781,6 +782,13 @@ func (g *game) loadGame(path string) error {
 	g.parallaxInit = false
 	g.parallaxX = 0
 	g.parallaxY = 0
+	g.parallaxSign = 1
+	if strings.Contains(strings.ToLower(filepath.Base(path)), "alex kidd") {
+		// El motor de Alex Kidd desplaza el registro de scroll al revés que
+		// el resto de juegos: al avanzar a la derecha el registro baja. El
+		// parallax debe seguir el movimiento del mundo, no el registro.
+		g.parallaxSign = -1
+	}
 	g.skyTime = g.dayCycle * 0.25
 	return nil
 }
