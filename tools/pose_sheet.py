@@ -132,12 +132,30 @@ def slice_sheet(rom_name, generated_path, copy_to_pack=False):
     factor = factor_x
     print(f"Recortando {sheet.width}x{sheet.height} (factor {factor:.3f})")
 
+    # Gemini no respeta el rectángulo exacto de la pose original: suele
+    # redibujar la figura algo más grande y centrada en la celda. Recortar por
+    # el rectángulo original corta cabeza y pies. Por eso se recorta por la
+    # caja real de píxeles opacos dentro de cada celda.
+    cell_w = metadata["cell"] * metadata["scale"] * factor
+    cell_h = metadata["cell"] * metadata["scale"] * factor
+    alpha = sheet.getchannel("A")
     for entry in metadata["entries"]:
-        x = (entry["column"] * metadata["cell"] + entry["offset_x"]) * metadata["scale"] * factor
-        y = (entry["row"] * metadata["cell"] + entry["offset_y"]) * metadata["scale"] * factor
-        width = entry["width"] * metadata["scale"] * factor
-        height = entry["height"] * metadata["scale"] * factor
-        crop = sheet.crop((round(x), round(y), round(x + width), round(y + height)))
+        cell_x = entry["column"] * cell_w
+        cell_y = entry["row"] * cell_h
+        cell = sheet.crop((round(cell_x), round(cell_y), round(cell_x + cell_w), round(cell_y + cell_h)))
+        cell_alpha = cell.getchannel("A")
+        bbox = cell_alpha.point(lambda value: 255 if value > 10 else 0).getbbox()
+        if bbox is None:
+            print(f"⚠️ Celda vacía: {entry['label']}")
+            continue
+        padding = max(1, round(2 * factor))
+        left = max(0, bbox[0] - padding)
+        top = max(0, bbox[1] - padding)
+        right = min(cell.width, bbox[2] + padding)
+        bottom = min(cell.height, bbox[3] + padding)
+        crop = cell.crop((left, top, right, bottom))
+        if bbox[0] <= 1 or bbox[1] <= 1 or bbox[2] >= cell.width - 1 or bbox[3] >= cell.height - 1:
+            print(f"⚠️ La pose toca el borde de su celda: {entry['label']}")
         archive = entry["archive"]
         os.makedirs(os.path.dirname(archive), exist_ok=True)
         crop.save(archive)
@@ -146,6 +164,7 @@ def slice_sheet(rom_name, generated_path, copy_to_pack=False):
             os.makedirs(os.path.dirname(pack), exist_ok=True)
             crop.save(pack)
     print(f"Recortadas {len(metadata['entries'])} poses en {os.path.join('assets', rom_name, 'ai-remaster', 'poses')}")
+
 
 
 def main():
