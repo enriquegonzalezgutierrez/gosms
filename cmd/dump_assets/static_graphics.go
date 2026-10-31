@@ -145,7 +145,9 @@ func levelCRAM(rom []byte, level int, sprite bool) ([]byte, error) {
 		return nil, fmt.Errorf("nivel de paleta inválido %d", level)
 	}
 	pointer := int(rom[0x1112+(level-1)*2]) | int(rom[0x1113+(level-1)*2])<<8
-	offset := 0x14000 + pointer - 0x8000
+	// La tabla de $1112 son punteros de slot 2 al banco 7 ($1C000-$1FFFF).
+	// El offset plano es 0x14000 + puntero, no 0x14000 + puntero - 0x8000.
+	offset := 0x14000 + pointer
 	if offset < 0 || offset+32 > len(rom) {
 		return nil, fmt.Errorf("paleta del nivel %d fuera de la ROM", level)
 	}

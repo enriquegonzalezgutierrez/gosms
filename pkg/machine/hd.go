@@ -43,12 +43,26 @@ type TileObjectManifest struct {
 	FramesSeen int                   `json:"frames_seen"`
 	FirstFrame int                   `json:"first_frame"`
 	Tiles      []TileObjectPlacement `json:"tiles"`
+	Width      int                   `json:"width,omitempty"`
+	Height     int                   `json:"height,omitempty"`
+	Anchor     *TileObjectPattern    `json:"anchor,omitempty"`
+	Key        []TileObjectPattern   `json:"key,omitempty"`
+	Signature  []TileObjectPattern   `json:"signature,omitempty"`
 }
 
 type TileObjectPlacement struct {
 	Index int `json:"index"`
 	X     int `json:"x"`
 	Y     int `json:"y"`
+}
+
+// TileObjectPattern identifies one 8x8 cell of a complete object. DX/DY are
+// relative to the object's top-left cell and Hash is the cell hash, including
+// flips and palette selection.
+type TileObjectPattern struct {
+	DX   int    `json:"dx"`
+	DY   int    `json:"dy"`
+	Hash string `json:"hash"`
 }
 
 type TileSceneManifest struct {
@@ -131,6 +145,36 @@ type HDOverlay struct {
 	Pattern []HDOverlayPattern
 }
 
+// HDObjectEntry describes a complete object image exported by tile_tool.py
+// pack. Background objects are matched by their anchor cell and signature;
+// sprite objects are matched by the hash of their whole cluster signature.
+type HDObjectEntry struct {
+	ID        string             `json:"id"`
+	Kind      string             `json:"kind"`
+	Image     string             `json:"image"`
+	Width     int                `json:"width"`
+	Height    int                `json:"height"`
+	Anchor    *HDOverlayPattern  `json:"anchor,omitempty"`
+	Signature []HDOverlayPattern `json:"signature"`
+}
+
+type HDObjectDocument struct {
+	Version int             `json:"version"`
+	Scale   int             `json:"scale"`
+	Objects []HDObjectEntry `json:"objects"`
+}
+
+// HDObject es la version cargada en memoria de HDObjectEntry.
+type HDObject struct {
+	ID        string
+	Kind      string
+	Image     *ebiten.Image
+	Width     int
+	Height    int
+	Anchor    HDOverlayPattern
+	Signature []HDOverlayPattern
+}
+
 // HDPalette es el mapa de color de los 64 registros CRAM ya graduados. El
 // fondo del VDP se pinta con un registro, no con un tile, asi que necesita su
 // propia traduccion para que el cielo siga la paleta del pack.
@@ -179,6 +223,10 @@ type HDRenderer struct {
 	// name table cuando su patron de tiles coincide.
 	Overlays []HDOverlay
 
+	// Objects son objetos completos exportados por el pipeline (fondos y
+	// poses de sprites). Se reconocen por su celda ancla y su firma.
+	Objects []HDObject
+
 	Scale int
 }
 
@@ -194,6 +242,23 @@ func TileHash(tileData []byte, cram []byte, isSprite bool) string {
 		h.Write([]byte{0})
 	}
 	return fmt.Sprintf("%016x", h.Sum64())
+}
+
+// CellHash identifies a background name table cell. It includes the tile,
+// palette and both flip bits so a complete object only matches the exact
+// on-screen pattern. The static exporter and the runtime use this same helper.
+func CellHash(tileData, cram []byte, hflip, vflip bool) string {
+	base := TileHash(tileData, cram, false)
+	switch {
+	case hflip && vflip:
+		return base + "hv"
+	case hflip:
+		return base + "h"
+	case vflip:
+		return base + "v"
+	default:
+		return base
+	}
 }
 
 // GetPriorityTile devuelve el tile HD con sus pixeles de indice 0 recortados.
@@ -431,6 +496,7 @@ func loadHDPackV2(hdDir string, data []byte) bool {
 	if mapped == 0 {
 		return false
 	}
+	hd.Objects = loadHDObjects(hdDir)
 	HD = hd
 	fmt.Printf("\033[1;32m🌟 GOSMS HD ENGINE:\033[0m Pack v2 cargado -> %d texturas en %d páginas (Escala %dx, carga bajo demanda)\n",
 		mapped, len(hd.Pages), hd.Scale)
@@ -525,6 +591,7 @@ func loadHDLegacy(hdDir string) {
 	}
 	hd.Scale = scale
 	hd.Overlays = loadHDOverlays(hdDir)
+	hd.Objects = loadHDObjects(hdDir)
 
 	cellSize := 12 * scale
 	padding := 2 * scale
@@ -582,6 +649,53 @@ func loadHDOverlays(hdDir string) []HDOverlay {
 		fmt.Printf("\033[1;32m🌟 GOSMS HD:\033[0m %d overlay(s) de objeto completo.\n", len(overlays))
 	}
 	return overlays
+}
+
+// loadHDObjects carga los objetos completos exportados por tile_tool.py pack.
+// Los fondos se indexan por el hash de su celda ancla; los sprites por el hash
+// de su firma completa. Si no existe objects.json, el pack sigue funcionando
+// con tiles y overlays.
+func loadHDObjects(hdDir string) []HDObject {
+	data, err := os.ReadFile(filepath.Join(hdDir, "objects.json"))
+	if err != nil {
+		return nil
+	}
+	var doc HDObjectDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	objects := make([]HDObject, 0, len(doc.Objects))
+	for _, entry := range doc.Objects {
+		if entry.ID == "" || entry.Image == "" || len(entry.Signature) == 0 {
+			continue
+		}
+		f, err := os.Open(filepath.Join(hdDir, filepath.FromSlash(entry.Image)))
+		if err != nil {
+			continue
+		}
+		decoded, _, err := image.Decode(f)
+		_ = f.Close()
+		if err != nil {
+			continue
+		}
+		obj := HDObject{
+			ID:        entry.ID,
+			Kind:      entry.Kind,
+			Image:     ebiten.NewImageFromImage(decoded),
+			Width:     entry.Width,
+			Height:    entry.Height,
+			Signature: entry.Signature,
+		}
+		if entry.Anchor != nil {
+			obj.Anchor = *entry.Anchor
+		}
+		objects = append(objects, obj)
+	}
+	if len(objects) == 0 {
+		return nil
+	}
+	fmt.Printf("\033[1;32m🌟 GOSMS HD:\033[0m %d objeto(s) completo(s) cargados.\n", len(objects))
+	return objects
 }
 
 // LoadHeightPage decodifica una pagina de altura bajo demanda.

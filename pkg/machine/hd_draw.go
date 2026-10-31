@@ -193,6 +193,7 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 	type overlayItem struct {
 		img          *ebiten.Image
 		drawX, drawY float64
+		sx, sy       float64
 	}
 	var overlayDraws []overlayItem
 	var covered [28][32]bool
@@ -262,16 +263,99 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 						img:   ov.Image,
 						drawX: destX + (float64(x)-cropOffset)*scale,
 						drawY: destY + float64(y)*scale,
+						sx:    hdScale, sy: hdScale,
 					})
 					if x+ov.Width > 256 {
 						overlayDraws = append(overlayDraws, overlayItem{
 							img:   ov.Image,
 							drawX: destX + (float64(x-256)-cropOffset)*scale,
 							drawY: destY + float64(y)*scale,
+							sx:    hdScale, sy: hdScale,
 						})
 					}
 				}
 			}
+		}
+	}
+
+	// 1c. Fondos completos de pantalla (256x192). Cada objeto se indexa por la
+	// celda ancla elegida al exportar, así que solo se verifica su firma cuando
+	// esa celda coincide. Alex Kidd usa pantallas fijas, de modo que la pantalla
+	// completa se puede sustituir por una sola imagen coherente.
+	var objectCovered [28][32]bool
+	if len(hd.Objects) > 0 {
+		var objectGrid [28][32]string
+		gridReady := false
+		for _, obj := range hd.Objects {
+			if obj.Kind != "background_screen" || obj.Width < vdp.ScreenW || obj.Height < vdp.ScreenH {
+				continue
+			}
+			if !gridReady {
+				for r := 0; r < 28; r++ {
+					for c := 0; c < 32; c++ {
+						off := (nameBase + r*64 + c*2) & 0x3FFF
+						entry := uint16(v.VRAM[(off+1)&0x3FFF])<<8 | uint16(v.VRAM[off])
+						tile := int(entry & 0x1FF)
+						po := 0
+						if entry&0x800 != 0 {
+							po = 16
+						}
+						pat := (tile * 32) & 0x3FFF
+						objectGrid[r][c] = CellHash(v.VRAM[pat:pat+32], v.CRAM[po:po+16], entry&0x200 != 0, entry&0x400 != 0)
+					}
+				}
+				gridReady = true
+			}
+			ax, ay := obj.Anchor.DX, obj.Anchor.DY
+			if ax < 0 || ax >= 32 || ay < 0 || ay >= 28 || objectGrid[ay][ax] != obj.Anchor.Hash {
+				continue
+			}
+			match := true
+			for _, p := range obj.Signature {
+				if p.DX < 0 || p.DX >= 32 || p.DY < 0 || p.DY >= 28 || objectGrid[p.DY][p.DX] != p.Hash {
+					match = false
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+			overlap := false
+			for _, p := range obj.Signature {
+				if covered[p.DY][p.DX] {
+					overlap = true
+					break
+				}
+			}
+			if overlap {
+				continue
+			}
+			for _, p := range obj.Signature {
+				covered[p.DY][p.DX] = true
+				objectCovered[p.DY][p.DX] = true
+			}
+			x := positiveMod(-scrollX, 256)
+			y := -scrollY
+			if y <= -vdp.ScreenH {
+				continue
+			}
+			objectScaleX := scale * float64(obj.Width) / float64(obj.Image.Bounds().Dx())
+			objectScaleY := scale * float64(obj.Height) / float64(obj.Image.Bounds().Dy())
+			overlayDraws = append(overlayDraws, overlayItem{
+				img:   obj.Image,
+				drawX: destX + (float64(x)-cropOffset)*scale,
+				drawY: destY + float64(y)*scale,
+				sx:    objectScaleX, sy: objectScaleY,
+			})
+			if x+obj.Width > 256 {
+				overlayDraws = append(overlayDraws, overlayItem{
+					img:   obj.Image,
+					drawX: destX + (float64(x-256)-cropOffset)*scale,
+					drawY: destY + float64(y)*scale,
+					sx:    objectScaleX, sy: objectScaleY,
+				})
+			}
+			break
 		}
 	}
 
@@ -309,6 +393,9 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 
 			bgX := tileDrawX - sx
 			col := (bgX >> 3) & 0x1F
+			if objectCovered[row][col] {
+				continue
+			}
 			off := (nameBase + row*64 + col*2) & 0x3FFF
 			entry := uint16(v.VRAM[(off+1)&0x3FFF])<<8 | uint16(v.VRAM[off])
 			tile := int(entry & 0x1FF)
@@ -405,7 +492,7 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 		if hdScale == 1 {
 			op.Filter = ebiten.FilterNearest
 		}
-		op.GeoM.Scale(hdScale, hdScale)
+		op.GeoM.Scale(item.sx, item.sy)
 		op.GeoM.Translate(item.drawX, item.drawY)
 		screen.DrawImage(item.img, op)
 	}
@@ -462,7 +549,84 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 	}
 	var spriteDraws []spriteDraw
 
+	// Poses completas de sprite: se buscan por la celda ancla dentro de la SAT
+	// y se verifica su firma relativa. Así Alex se dibuja entero aunque tenga
+	// una moneda o un enemigo pegado al lado.
+	var spriteCovered [64]bool
+	var spriteObjectDraws []spriteDraw
+	if len(hd.Objects) > 0 && !tall {
+		type satSprite struct {
+			x, y int
+			hash string
+		}
+		sat := make([]satSprite, len(sprites))
+		byHash := make(map[string][]int)
+		for i, s := range sprites {
+			if int(v.VRAM[(satBase+i)&0x3FFF]) == 0 {
+				continue
+			}
+			pat := (patBase + s.tile*32) & 0x3FFF
+			hash := TileHash(v.VRAM[pat:pat+32], sprCram, true)
+			sat[i] = satSprite{x: s.x, y: s.y, hash: hash}
+			byHash[hash] = append(byHash[hash], i)
+		}
+		for oi := range hd.Objects {
+			obj := &hd.Objects[oi]
+			if obj.Kind != "sprite_pose" && obj.Kind != "sprite" {
+				continue
+			}
+			anchor := obj.Anchor
+			for _, ci := range byHash[anchor.Hash] {
+				topX := sat[ci].x - anchor.DX
+				topY := sat[ci].y - anchor.DY
+				used := make([]int, 0, len(obj.Signature))
+				matched := true
+				for _, p := range obj.Signature {
+					found := -1
+					for _, si := range byHash[p.Hash] {
+						if sat[si].x == topX+p.DX && sat[si].y == topY+p.DY {
+							found = si
+							break
+						}
+					}
+					if found < 0 {
+						matched = false
+						break
+					}
+					used = append(used, found)
+				}
+				if !matched {
+					continue
+				}
+				if topX+obj.Width <= minX || topX >= maxX || topY+obj.Height <= 0 || topY >= vdp.ScreenH {
+					continue
+				}
+				op := &ebiten.DrawImageOptions{}
+				op.Filter = ebiten.FilterLinear
+				if hdScale == 1 {
+					op.Filter = ebiten.FilterNearest
+				}
+				op.GeoM.Scale(
+					scale*float64(obj.Width)/float64(obj.Image.Bounds().Dx()),
+					scale*float64(obj.Height)/float64(obj.Image.Bounds().Dy()),
+				)
+				op.GeoM.Translate(
+					math.Floor(destX+(float64(topX)-cropOffset)*scale),
+					math.Floor(destY+float64(topY)*scale),
+				)
+				spriteObjectDraws = append(spriteObjectDraws, spriteDraw{img: obj.Image, op: op})
+				for _, si := range used {
+					spriteCovered[si] = true
+				}
+				break
+			}
+		}
+	}
+
 	for i := len(sprites) - 1; i >= 0; i-- {
+		if spriteCovered[i] {
+			continue
+		}
 		s := sprites[i]
 		parts := 1
 		if tall {
@@ -510,6 +674,8 @@ func (hd *HDRenderer) DrawLayer(v *vdp.VDP, screen, heightDst *ebiten.Image, sca
 			})
 		}
 	}
+
+	spriteDraws = append(spriteDraws, spriteObjectDraws...)
 
 	// Sombra proyectada de los sprites. Se dibuja en una pasada previa para que
 	// los tiles de una misma figura no se ensucien entre ellos. Solo tiene

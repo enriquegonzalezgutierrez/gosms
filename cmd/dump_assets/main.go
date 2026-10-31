@@ -260,10 +260,13 @@ func makeSpriteObjects(sprites []visibleSprite, frame int, tiles []machine.TileM
 			}
 		}
 		var signatureParts []string
+		signature := make([]machine.TileObjectPattern, 0, len(placements))
 		for i := range placements {
 			placements[i].X -= minX
 			placements[i].Y -= minY
-			signatureParts = append(signatureParts, fmt.Sprintf("%s@%d,%d", tiles[placements[i].Index].Hash, placements[i].X, placements[i].Y))
+			hash := tiles[placements[i].Index].Hash
+			signatureParts = append(signatureParts, fmt.Sprintf("%s@%d,%d", hash, placements[i].X, placements[i].Y))
+			signature = append(signature, machine.TileObjectPattern{DX: placements[i].X, DY: placements[i].Y, Hash: hash})
 		}
 		sort.Strings(signatureParts)
 		h := fnv.New64a()
@@ -282,11 +285,14 @@ func makeSpriteObjects(sprites []visibleSprite, frame int, tiles []machine.TileM
 				}
 				draw.Draw(preview, image.Rect(placement.X, placement.Y, placement.X+8, placement.Y+8), tile, image.Point{}, draw.Over)
 			}
+			anchor := signature[0]
 			acc = &objectAccumulator{
 				manifest: machine.TileObjectManifest{
 					ID: id, Kind: "sprite_cluster", Label: "unlabeled",
 					Preview:    filepath.ToSlash(filepath.Join("objects", id+".png")),
 					FirstFrame: frame, Tiles: placements,
+					Width: maxX - minX, Height: maxY - minY,
+					Anchor: &anchor, Signature: signature,
 				},
 				preview: preview,
 			}
@@ -504,9 +510,11 @@ func main() {
 	spriteClusters := flag.Bool("sprite-clusters", false, "agrupa sprites que se tocan (puede mezclar objetos; desactivado por defecto)")
 	bgGroup := flag.Int("bg-group", 0, "tamaño en tiles de los bloques de fondo para remasterizar (0 = desactivado, 8 = 64x64 px)")
 	bgProtect := flag.Int("bg-protect", 0, "filas superiores de la name table que no se agrupan (HUD)")
+	backgroundsOnly := flag.Bool("backgrounds-only", false, "solo genera los fondos completos de Alex Kidd en original/objects (no toca manifest ni HD)")
+	spritesOnly := flag.Bool("sprites-only", false, "captura poses completas de sprites y las añade a original/manifest.json sin rehacer tiles ni HD")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Println("Uso: dump_assets [-frames N] [-bot default|alex-kidd] [-sonic] [-castle] [-bg-group 8] [-bg-protect 2] <rom.sms>")
+		fmt.Println("Uso: dump_assets [-frames N] [-bot default|alex-kidd] [-sonic] [-castle] [-bg-group 8] [-bg-protect 2] [-backgrounds-only] [-sprites-only] <rom.sms>")
 		return
 	}
 	if *frames < 1 {
@@ -541,6 +549,105 @@ func main() {
 
 	fmt.Printf("🚀 Ejecutando volcado offline de alta fidelidad para '%s'...\n", baseName)
 	romTileOffsets := indexROMTiles(data)
+
+	if *backgroundsOnly {
+		if !staticAlexKidd {
+			fmt.Println("Los fondos completos solo están disponibles para Alex Kidd in Miracle World (V1.1).")
+			return
+		}
+		bgScenes, _, err := alexKiddLayoutScenes(data, sceneDir)
+		if err != nil {
+			fmt.Printf("Error decodificando mapas estáticos de Alex Kidd: %v\n", err)
+			return
+		}
+		accs, err := alexKiddBackgroundObjects(data, bgScenes, objectDir)
+		if err != nil {
+			fmt.Printf("Error generando fondos completos: %v\n", err)
+			return
+		}
+		bgManifests := make([]machine.TileObjectManifest, 0, len(accs))
+		for _, acc := range accs {
+			bgManifests = append(bgManifests, acc.manifest)
+		}
+		// Conserva los tiles y objetos existentes: este modo solo añade los
+		// fondos completos para poder revisarlos sin rehacer el pack HD.
+		merged := machine.TileManifestDocument{
+			Version: 2, ROM: filepath.Base(romPath), Objects: bgManifests, Scenes: bgScenes,
+		}
+		manifestPath := filepath.Join(outDir, "manifest.json")
+		if previous, err := os.ReadFile(manifestPath); err == nil && len(previous) > 0 && previous[0] == '{' {
+			var existing machine.TileManifestDocument
+			if json.Unmarshal(previous, &existing) == nil {
+				byID := make(map[string]machine.TileObjectManifest)
+				for _, obj := range existing.Objects {
+					byID[obj.ID] = obj
+				}
+				for _, obj := range bgManifests {
+					byID[obj.ID] = obj
+				}
+				ids := make([]string, 0, len(byID))
+				for id := range byID {
+					ids = append(ids, id)
+				}
+				sort.Strings(ids)
+				merged = existing
+				merged.Version = 2
+				merged.ROM = filepath.Base(romPath)
+				merged.Scenes = bgScenes
+				merged.Objects = make([]machine.TileObjectManifest, 0, len(ids))
+				for _, id := range ids {
+					merged.Objects = append(merged.Objects, byID[id])
+				}
+			}
+		}
+		if err := saveJSON(manifestPath, merged); err != nil {
+			fmt.Printf("Error actualizando manifest.json: %v\n", err)
+			return
+		}
+		fmt.Printf("🖼️  %d fondos completos escritos en %s\n", len(bgManifests), objectDir)
+		return
+	}
+
+	if *spritesOnly {
+		if !staticAlexKidd {
+			fmt.Println("La captura de poses completas solo está disponible para Alex Kidd in Miracle World (V1.1).")
+			return
+		}
+		manifestPath := filepath.Join(outDir, "manifest.json")
+		manifestData, err := os.ReadFile(manifestPath)
+		if err != nil {
+			fmt.Printf("Error leyendo manifest.json: %v\n", err)
+			return
+		}
+		var doc machine.TileManifestDocument
+		if err := json.Unmarshal(manifestData, &doc); err != nil {
+			fmt.Printf("Error decodificando manifest.json: %v\n", err)
+			return
+		}
+		accs, err := alexKiddSpritePoseObjects(data, objectDir)
+		if err != nil {
+			fmt.Printf("Error generando poses estáticas de Alex: %v\n", err)
+			return
+		}
+		kept := make([]machine.TileObjectManifest, 0, len(doc.Objects)+len(accs))
+		for _, obj := range doc.Objects {
+			if obj.Kind != "sprite_cluster" && obj.Kind != "sprite_pose" && obj.Kind != "background_object" {
+				kept = append(kept, obj)
+			}
+		}
+		for _, acc := range accs {
+			kept = append(kept, acc.manifest)
+		}
+		sort.Slice(kept, func(i, j int) bool { return kept[i].ID < kept[j].ID })
+		doc.Objects = kept
+		if err := saveJSON(manifestPath, doc); err != nil {
+			fmt.Printf("Error guardando manifest.json: %v\n", err)
+			return
+		}
+		pruneObjectPNGs(objectDir, kept)
+		fmt.Printf("🧍 %d poses estáticas de Alex escritas en %s\n", len(accs), objectDir)
+		return
+	}
 
 	sessions := []extractionSession{{level: -1, frames: *frames}}
 	if *sonic {
@@ -712,10 +819,12 @@ func main() {
 							visible = append(visible, sprite)
 						}
 					}
-					makeSpriteObjects(visible, globalFrame, manifest, uniqueTiles, objects, *spriteClusters)
+					if !staticAlexKidd {
+						makeSpriteObjects(visible, globalFrame, manifest, uniqueTiles, objects, *spriteClusters)
+					}
 				}
 
-				if *bgGroup >= 2 && f%30 == 0 {
+				if !staticAlexKidd && *bgGroup >= 2 && f%30 == 0 {
 					makeBackgroundObjects(tileMap, globalFrame, manifest, uniqueTiles, objects, *bgGroup, *bgProtect)
 				}
 
@@ -780,6 +889,26 @@ func main() {
 		scenes = staticScenes
 		fmt.Printf("🧩 Tiles estáticos: %d tras decodificar los gráficos de los 17 niveles.\n", len(manifest))
 		fmt.Printf("🗺️ Mapas estáticos: %d bloques de pantalla encontrados en los 17 niveles.\n", count)
+
+		backgroundAccs, err := alexKiddBackgroundObjects(data, staticScenes, objectDir)
+		if err != nil {
+			fmt.Printf("Error generando fondos completos de Alex Kidd: %v\n", err)
+			os.Exit(1)
+		}
+		for _, acc := range backgroundAccs {
+			objects[acc.manifest.ID] = acc
+		}
+		fmt.Printf("🖼️ Fondos completos: %d pantallas de 256x192.\n", len(backgroundAccs))
+
+		poseAccs, err := alexKiddSpritePoseObjects(data, objectDir)
+		if err != nil {
+			fmt.Printf("Error generando poses completas de Alex: %v\n", err)
+			os.Exit(1)
+		}
+		for _, acc := range poseAccs {
+			objects[acc.manifest.ID] = acc
+		}
+		fmt.Printf("🧍 Poses completas de Alex: %d.\n", len(poseAccs))
 	}
 
 	fmt.Printf("📦 Generando Spritesheet Anti-Bleed (%d texturas únicas)...\n", len(uniqueTiles))

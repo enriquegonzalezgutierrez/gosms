@@ -96,3 +96,43 @@ func TestSlot2ROMOffsetUsesAlexKiddBankWindow(t *testing.T) {
 		t.Fatal("slot2ROMOffset accepted an address outside slot 2")
 	}
 }
+
+func TestAlexKiddStaticPoseParsesTileSetAndSignedOffsets(t *testing.T) {
+	rom := make([]byte, 128*1024)
+	// Tabla de tile sets en $10000: la entrada 0 apunta al descriptor $8010.
+	rom[0x10000] = 0x10
+	rom[0x10001] = 0x80
+	// Descriptor de tiles en $10010: un tile, puntero $8020.
+	rom[0x10010] = 1
+	rom[0x10011] = 0x20
+	rom[0x10012] = 0x80
+	for i := 0; i < 24; i++ {
+		rom[0x10020+i] = byte(i + 1)
+	}
+
+	tiles, err := alexKiddStaticTileSet(rom, 0)
+	if err != nil {
+		t.Fatalf("alexKiddStaticTileSet() error = %v", err)
+	}
+	if len(tiles) != 1 {
+		t.Fatalf("tile count = %d, want 1", len(tiles))
+	}
+	if got := tiles[0][0]; got != 1 {
+		t.Errorf("first byte = %d, want 1", got)
+	}
+
+	// Pose en $9000: dos sprites, el segundo con X negativa (-8) para probar
+	// que el objeto se normaliza a un lienzo de 16x16.
+	pose := []byte{0x00, 0x02, 0x00, 0x00, 0x08, 0x00, 0x00, 0xF8, 0x00}
+	copy(rom[0x9000:], pose)
+	def, err := alexKiddSpritePose(rom, "prueba", 0x9000)
+	if err != nil {
+		t.Fatalf("alexKiddSpritePose() error = %v", err)
+	}
+	if def.Width != 16 || def.Height != 16 {
+		t.Fatalf("pose size = %dx%d, want 16x16", def.Width, def.Height)
+	}
+	if def.Parts[1].X != 0 || def.Parts[0].X != 8 {
+		t.Errorf("normalized X = %d,%d, want 8,0", def.Parts[0].X, def.Parts[1].X)
+	}
+}

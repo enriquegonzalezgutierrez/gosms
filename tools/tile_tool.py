@@ -154,6 +154,78 @@ def load_original_tile(item, tile_dir, spritesheet):
     return None
 
 
+def object_source_path(obj, original_dir):
+    preview = obj.get("preview") or os.path.join("objects", f"{obj['id']}.png")
+    path = os.path.join(original_dir, preview.replace("/", os.sep))
+    return path if os.path.isfile(path) else None
+
+
+def complete_object_image(obj, original_dir, work_dir, scale):
+    """Devuelve la imagen completa de un objeto, remasterizada si existe.
+
+    Los objetos completos (pantallas de fondo y poses de sprites) ya se
+    exportan renderizados en original/objects. Si el artista o la IA han
+    dejado un resultado en remaster_workspace/objects, se usa ese en su lugar.
+    """
+    width = obj.get("width", 0)
+    height = obj.get("height", 0)
+    if width <= 0 or height <= 0:
+        return None
+    expected = (width * scale, height * scale)
+    remastered = remastered_object_path(work_dir, obj["id"]) if work_dir else None
+    reference = object_source_path(obj, original_dir)
+    if remastered:
+        return load_remastered_object(remastered, reference, expected)
+    if not reference:
+        return None
+    # El original se guarda a resolución nativa para no llenar la VRAM: el
+    # emulador lo escala al dibujar. Un remaster de la IA sí conserva la
+    # resolución esperada (width * scale).
+    with Image.open(reference) as source:
+        return source.convert("RGBA")
+
+
+def export_complete_objects(document, original_dir, work_dir, hd_dir, scale):
+    """Exporta hd/objects.json y las imágenes completas usadas en runtime.
+
+    Solo se exportan objetos con firma y ancla: son los que el emulador puede
+    reconocer como una pantalla o una pose completa. Los objetos técnicos por
+    tiles siguen viviendo únicamente en el atlas.
+    """
+    objects = []
+    out_dir = os.path.join(hd_dir, "objects")
+    os.makedirs(out_dir, exist_ok=True)
+    wanted = set()
+    for obj in document.get("objects", []):
+        if obj.get("kind") not in ("background_screen", "sprite_cluster", "sprite", "sprite_pose"):
+            continue
+        if not obj.get("signature") or not obj.get("anchor"):
+            continue
+        image = complete_object_image(obj, original_dir, work_dir, scale)
+        if image is None:
+            continue
+        name = f"{obj['id']}.png"
+        image.save(os.path.join(out_dir, name))
+        wanted.add(name)
+        objects.append({
+            "id": obj["id"],
+            "kind": obj["kind"],
+            "label": obj.get("label", ""),
+            "image": f"objects/{name}",
+            "width": obj.get("width", 0),
+            "height": obj.get("height", 0),
+            "anchor": obj["anchor"],
+            "signature": obj["signature"],
+        })
+    for name in os.listdir(out_dir):
+        if name.lower().endswith(".png") and name not in wanted:
+            os.remove(os.path.join(out_dir, name))
+    with open(os.path.join(hd_dir, "objects.json"), "w", encoding="utf-8") as output:
+        json.dump({"version": 1, "scale": scale, "objects": objects}, output, indent=2, ensure_ascii=False)
+    print(f"🧩 {len(objects)} objeto(s) completo(s) exportados a {out_dir}/ y hd/objects.json")
+    return objects
+
+
 def unpack(rom_name):
     root = os.path.join("assets", rom_name)
     original_dir = os.path.join(root, "original")
@@ -182,6 +254,10 @@ def unpack(rom_name):
 
     for obj in remasterable_objects:
         placements = obj.get("tiles", [])
+        complete = complete_object_image(obj, original_dir, None, SCALE)
+        if complete is not None:
+            complete.save(os.path.join(source_object_dir, f"{obj['id']}.png"))
+            continue
         if not placements:
             continue
         width = max(tile["x"] + 8 for tile in placements)
@@ -418,6 +494,8 @@ def pack(rom_name):
 
     flatten_sky_heights(remastered, heights, work_dir)
 
+    export_complete_objects(document, original_dir, work_dir, hd_dir, SCALE)
+
     covered_tiles = fallback_tiles | set(object_tiles) | override_tiles
     nearest_count = max(0, len(tiles) - len(covered_tiles))
     coverage = len(covered_tiles) * 100.0 / max(1, len(tiles))
@@ -565,10 +643,17 @@ def pack(rom_name):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("unpack", "pack"):
-        print("Uso: python3 tools/tile_tool.py [unpack|pack] 'Nombre_ROM'")
+    if len(sys.argv) < 3 or sys.argv[1] not in ("unpack", "pack", "export-objects"):
+        print("Uso: python3 tools/tile_tool.py [unpack|pack|export-objects] 'Nombre_ROM'")
         sys.exit(1)
     if sys.argv[1] == "unpack":
         unpack(sys.argv[2])
+    elif sys.argv[1] == "export-objects":
+        rom_root = os.path.join("assets", sys.argv[2])
+        original_dir = os.path.join(rom_root, "original")
+        work_dir = os.path.join(rom_root, "remaster_workspace")
+        hd_dir = os.path.join(rom_root, "hd")
+        document = read_manifest(os.path.join(original_dir, "manifest.json"))
+        export_complete_objects(document, original_dir, work_dir, hd_dir, SCALE)
     else:
         pack(sys.argv[2])
