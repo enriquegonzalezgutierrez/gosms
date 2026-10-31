@@ -512,6 +512,7 @@ func main() {
 	bgProtect := flag.Int("bg-protect", 0, "filas superiores de la name table que no se agrupan (HUD)")
 	backgroundsOnly := flag.Bool("backgrounds-only", false, "solo genera los fondos completos de Alex Kidd en original/objects (no toca manifest ni HD)")
 	spritesOnly := flag.Bool("sprites-only", false, "captura poses completas de sprites y las añade a original/manifest.json sin rehacer tiles ni HD")
+	exportTiles := flag.Int("export-level-tiles", 0, "exporta la hoja de tiles reales de la VRAM de un nivel para Gemini")
 	flag.Parse()
 	if flag.NArg() < 1 {
 		fmt.Println("Uso: dump_assets [-frames N] [-bot default|alex-kidd] [-sonic] [-castle] [-bg-group 8] [-bg-protect 2] [-backgrounds-only] [-sprites-only] <rom.sms>")
@@ -549,6 +550,18 @@ func main() {
 
 	fmt.Printf("🚀 Ejecutando volcado offline de alta fidelidad para '%s'...\n", baseName)
 	romTileOffsets := indexROMTiles(data)
+
+	if *exportTiles > 0 {
+		if !staticAlexKidd {
+			fmt.Println("La exportación de tiles solo está disponible para Alex Kidd in Miracle World (V1.1).")
+			return
+		}
+		if err := exportLevelTiles(data, *exportTiles, outDir); err != nil {
+			fmt.Printf("Error exportando los tiles del nivel %d: %v\n", *exportTiles, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *backgroundsOnly {
 		if !staticAlexKidd {
