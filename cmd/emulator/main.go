@@ -436,6 +436,7 @@ type game struct {
 	crop           bool
 	hdMode         bool
 	dumper         *LiveDumper
+	livePoses      *LivePoseCapture
 	audioBuf       *audioBuffer
 	audioCtx       *audio.Context
 	musicPlayer    *audio.Player
@@ -766,6 +767,7 @@ func (g *game) loadGame(path string) error {
 	machine.InitHD(path)
 	g.hdMode = false
 	g.dumper = newLiveDumper(path)
+	g.livePoses = newLivePoseCapture(path)
 	g.m.CPU.PSG.SetSampleRate(sampleRate)
 	g.audioBuf.Reset()
 
@@ -893,19 +895,15 @@ func (g *game) Update() error {
 		}
 	}
 
-	// F9: Iniciar / Detener grabación de Dump en vivo
+	// F9: iniciar / detener la captura de criaturas en una hoja única.
 	if inpututil.IsKeyJustPressed(ebiten.KeyF9) {
-		if g.dumper != nil {
-			g.dumper.Active = !g.dumper.Active
-			if g.dumper.Active {
-				g.showOSD("🔴 GRABANDO DUMP EN VIVO (F9 para guardar)")
+		if g.livePoses != nil {
+			g.livePoses.Active = !g.livePoses.Active
+			if g.livePoses.Active {
+				g.showOSD("🔴 GRABANDO CRIATURAS (F9 para guardar)")
 			} else {
-				saved := g.dumper.Save()
-				if saved > 0 {
-					g.showOSD(fmt.Sprintf("💾 DUMP GUARDADO: +%d NUEVOS tiles! (Total: %d)", saved, len(g.dumper.Manifest)))
-				} else {
-					g.showOSD(fmt.Sprintf("💾 DUMP OK: Zona ya volcada al 100%% (%d tiles)", len(g.dumper.Manifest)))
-				}
+				_ = g.livePoses.Write()
+				g.showOSD(fmt.Sprintf("💾 CRIATURAS: %d poses en dist/live-captura/", g.livePoses.Count()))
 			}
 		}
 	}
@@ -1113,6 +1111,9 @@ func (g *game) Update() error {
 		// Capturar frame recién procesado si el dumper está activo
 		if g.dumper != nil && g.dumper.Active && g.m != nil && g.m.VDP != nil {
 			g.dumper.CaptureFrame(g.m.VDP)
+		}
+		if g.livePoses != nil && g.livePoses.Active && g.m != nil && g.m.VDP != nil {
+			g.livePoses.Capture(g.m.VDP)
 		}
 
 		// 1. Generar audio mono base del PSG
@@ -1339,7 +1340,7 @@ func (g *game) drawHelp(screen *ebiten.Image) {
 		{"R", "Regenerar carátula"},
 		{"F12 / H", "Abrir / cerrar ayuda"},
 		{"B / Back / Esc", "Salir"},
-		{"F9", "Herramientas de desarrollo"},
+		{"F9", "Grabar criaturas (hoja de poses)"},
 	}
 	for i, line := range left {
 		drawLine(col1, y0+20+float64(i)*18, line[0], line[1])
